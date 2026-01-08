@@ -76,16 +76,28 @@ class CiiWriter extends AbstractWriter
 
             $agreement = $lineItem->add("ram:SpecifiedLineTradeAgreement");
 
+            $vatRate = $line->getVatRate(); // ex: 20
+            $netUnitPrice = $line->getPrice() / $line->getBaseQuantity();
+
+            $grossUnitPrice = $netUnitPrice / (1 + $vatRate / 100);
+
             $agreement->add("ram:GrossPriceProductTradePrice")
-                ->add("ram:ChargeAmount", $line->getPrice());
+                ->add("ram:ChargeAmount", $grossUnitPrice);
 
             $agreement->add("ram:NetPriceProductTradePrice")
-                ->add("ram:ChargeAmount", $line->getNetAmount());
+                ->add("ram:ChargeAmount", $netUnitPrice);
 
             $lineItem->add("ram:SpecifiedLineTradeDelivery")
                 ->add("ram:BilledQuantity", $line->getQuantity(), [
                     "unitCode" => $line->getUnit()
                 ]);
+            foreach ($line->getCharges() as $charge) {
+                //TODO: traiter les cas de présence de majoration
+            }
+
+            foreach ($line->getAllowances() as $charge) {
+                //TODO: traiter les cas de présence de remises
+            }
 
             $settlement = $lineItem->add("ram:SpecifiedLineTradeSettlement");
 
