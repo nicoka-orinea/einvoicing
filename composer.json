@@ -1,6 +1,5 @@
 {
     "name": "josemmo/einvoicing",
-    "version": "0.4.0-dev",
     "description": "Library for reading and creating European-compliant electronic invoices (EN 16931)",
     "keywords": [
         "invoicing",
