@@ -2,6 +2,7 @@
 
 namespace Einvoicing\Writers;
 
+use Einvoicing\AllowanceOrCharge;
 use Einvoicing\Invoice;
 use Einvoicing\Party;
 use UXML\UXML;
@@ -9,8 +10,8 @@ use UXML\UXML;
 class CiiWriter extends AbstractWriter
 {
     const NS_INVOICE = 'urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100';
-    const NS_RAM     = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
-    const NS_UDT     = 'urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100';
+    const NS_RAM = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
+    const NS_UDT = 'urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100';
 
     public function export(Invoice $invoice): string
     {
@@ -91,15 +92,17 @@ class CiiWriter extends AbstractWriter
                 ->add("ram:BilledQuantity", $line->getQuantity(), [
                     "unitCode" => $line->getUnit()
                 ]);
-            foreach ($line->getCharges() as $charge) {
-                //TODO: traiter les cas de présence de majoration
-            }
 
-            foreach ($line->getAllowances() as $charge) {
-                //TODO: traiter les cas de présence de remises
-            }
 
             $settlement = $lineItem->add("ram:SpecifiedLineTradeSettlement");
+
+            foreach ($line->getCharges() as $charge) {
+                $this->addLineAllowanceOrCharge($settlement, $charge, true, $line->getNetAmountBeforeAllowancesCharges());
+            }
+
+            foreach ($line->getAllowances() as $allowance) {
+                $this->addLineAllowanceOrCharge($settlement, $allowance, false, $line->getNetAmountBeforeAllowancesCharges());
+            }
 
             $this->addLineTradeTax($settlement, $line);
 
@@ -112,6 +115,49 @@ class CiiWriter extends AbstractWriter
                 ->add("ram:LineTotalAmount", $line->getNetAmount());
         }
     }
+
+    private function addLineAllowanceOrCharge(
+        UXML              $parent,
+        AllowanceOrCharge $item,
+        bool              $isCharge,
+        float             $baseAmount
+    ): void
+    {
+        $ac = $parent->add("ram:SpecifiedTradeAllowanceCharge");
+
+        // Charge ou remise
+        $ac->add("ram:ChargeIndicator")
+            ->add("udt:Indicator", $isCharge ? 'true' : 'false');
+
+        // Reason code (facultatif mais recommandé)
+        if ($item->getReasonCode()) {
+            $ac->add("ram:ReasonCode", $item->getReasonCode());
+        }
+
+        // Reason text
+        if ($item->getReason()) {
+            $ac->add("ram:Reason", $item->getReason());
+        }
+
+        // Pourcentage vs montant fixe
+        if ($item->isPercentage()) {
+            $ac->add("ram:CalculationPercent", $item->getAmount());
+            $ac->add("ram:BasisAmount", $baseAmount);
+            $actualAmount = $item->getEffectiveAmount($baseAmount);
+        } else {
+            $actualAmount = $item->getAmount();
+        }
+
+        // Montant effectif (toujours positif)
+        $ac->add("ram:ActualAmount", $actualAmount);
+
+        // TVA associée
+        $tax = $ac->add("ram:CategoryTradeTax");
+        $tax->add("ram:TypeCode", "VAT");
+        $tax->add("ram:CategoryCode", $item->getVatCategory());
+        $tax->add("ram:RateApplicablePercent", $item->getVatRate());
+    }
+
 
     private function addLineTradeTax(UXML $parent, $line): void
     {
@@ -159,9 +205,18 @@ class CiiWriter extends AbstractWriter
     {
         $settlement = $parent->add("ram:ApplicableHeaderTradeSettlement");
         $settlement->add("ram:InvoiceCurrencyCode", $invoice->getCurrency());
+        $totals = $invoice->getTotals();
 
-        foreach ($invoice->getTotals()->vatBreakdown as $item) {
+        foreach ($totals->vatBreakdown as $item) {
             $this->addHeaderTradeTax($settlement, $item);
+        }
+
+        foreach ($invoice->getCharges() as $charge) {
+            $this->addLineAllowanceOrCharge($settlement, $charge, true, $totals->taxInclusiveAmount);
+        }
+
+        foreach ($invoice->getAllowances() as $allowance) {
+            $this->addLineAllowanceOrCharge($settlement, $allowance, false, $totals->taxInclusiveAmount);
         }
 
         $this->addPaymentTerms($settlement, $invoice);
