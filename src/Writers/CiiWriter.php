@@ -9,125 +9,247 @@ use UXML\UXML;
 class CiiWriter extends AbstractWriter
 {
     const NS_INVOICE = 'urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100';
-    const NS_RAM = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
-    const NS_UDT = 'urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100';
+    const NS_RAM     = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
+    const NS_UDT     = 'urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100';
 
-    /**
-     * @inheritdoc
-     */
     public function export(Invoice $invoice): string
     {
-
-        $xml = UXML::newInstance("rsm:CrossIndustryInvoice", null, [
-            'xmlns:rsm' => self::NS_INVOICE,
-            'xmlns:ram' => self::NS_RAM,
-            'xmlns:udt' => self::NS_UDT
-        ]);
-
-        $xml->add("rsm:ExchangedDocumentContext")
-            ->add("ram:GuidelineSpecifiedDocumentContextParameter")
-            ->add("ram:ID", "urn:cen.eu:en16931:2017");
-
-        // Document ref
-        $exchanged_document = $xml->add("rsm:ExchangedDocument");
-        $exchanged_document->add("ram:ID", $invoice->getNumber());
-        $exchanged_document->add("ram:TypeCode", $invoice->getType());
-        $exchanged_document->add("ram:IssueDateTime")
-            ->add("udt:DateTimeString", $invoice->getIssueDate()?->format("Ymd"), [
-                "format" => "102"
-            ]);
+        $xml = $this->createRoot();
+        $this->addContext($xml);
+        $this->addExchangedDocument($xml, $invoice);
 
         $transaction = $xml->add("rsm:SupplyChainTradeTransaction");
 
-        $this->getLineItems($transaction, $invoice);
-        $tradeAgreement = $xml->add("ram:ApplicableHeaderTradeAgreement");
-        $this->partyBody($tradeAgreement->add("ram:SellerTradeParty"), $invoice->getSeller());
-        $this->partyBody($tradeAgreement->add("ram:BuyerTradeParty"), $invoice->getBuyer());
-
-        $xml->add("ram:ApplicableHeaderTradeDelivery");
-
-        $tradeSettlement = $xml->add("ram:ApplicableHeaderTradeSettlement");
-        $tradeSettlement->add("ram:InvoiceCurrencyCode", $invoice->getCurrency());
-
-        $tradeTax = $tradeSettlement->add("ram:ApplicableTradeTax");
-        $tradeTax->add("ram:TypeCode", "VAT");
-        $tradeTax->add("ram:CategoryCode", "S");
-        $tradeTax->add("ram:RateApplicablePercent", "20");
-
-        $monetarySummation = $tradeSettlement->add("ram:SpecifiedTradeSettlementHeaderMonetarySummation");
-        $totals = $invoice->getTotals();
-        $monetarySummation->add("ram:LineTotalAmount", $totals->taxExclusiveAmount);
-        $monetarySummation->add("ram:TaxBasisTotalAmount", $totals->taxExclusiveAmount);
-        $monetarySummation->add("ram:TaxTotalAmount", $totals->vatAmount);
-        $monetarySummation->add("ram:TaxTotalAmount", $totals->taxInclusiveAmount);
-        $monetarySummation->add("ram:DuePayableAmount", $totals->payableAmount);
-
+        $this->addLineItems($transaction, $invoice);
+        $this->addHeaderAgreement($transaction, $invoice);
+        $this->addHeaderDelivery($transaction, $invoice);
+        $this->addHeaderSettlement($transaction, $invoice);
 
         return $xml->asXML();
     }
 
+    /* ================= ROOT & CONTEXT ================= */
 
-    private function getLineItems(UXML $parent, Invoice $invoice)
+    private function createRoot(): UXML
+    {
+        return UXML::newInstance("rsm:CrossIndustryInvoice", null, [
+            'xmlns:rsm' => self::NS_INVOICE,
+            'xmlns:ram' => self::NS_RAM,
+            'xmlns:udt' => self::NS_UDT
+        ]);
+    }
+
+    private function addContext(UXML $xml): void
+    {
+        $xml->add("rsm:ExchangedDocumentContext")
+            ->add("ram:GuidelineSpecifiedDocumentContextParameter")
+            ->add("ram:ID", "urn:factur-x.eu:1p0:en16931");
+    }
+
+    private function addExchangedDocument(UXML $xml, Invoice $invoice): void
+    {
+        $doc = $xml->add("rsm:ExchangedDocument");
+        $doc->add("ram:ID", $invoice->getNumber());
+        $doc->add("ram:TypeCode", $invoice->getType());
+
+        $doc->add("ram:IssueDateTime")
+            ->add("udt:DateTimeString", $invoice->getIssueDate()?->format("Ymd"), [
+                "format" => "102"
+            ]);
+    }
+
+    /* ================= LINE ITEMS ================= */
+
+    private function addLineItems(UXML $parent, Invoice $invoice): void
     {
         foreach ($invoice->getLines() as $line) {
-            $lineBlock = $parent->add("ram:IncludedSupplyChainTradeLineItem");
-            $lineBlock
+
+            $lineItem = $parent->add("ram:IncludedSupplyChainTradeLineItem");
+
+            $lineItem
                 ->add("ram:AssociatedDocumentLineDocument")
                 ->add("ram:LineID", $line->getId());
 
-            $product = $lineBlock->add("ram:SpecifiedTradeProduct");
+            $product = $lineItem->add("ram:SpecifiedTradeProduct");
             $product->add("ram:SellerAssignedID", $line->getSellerIdentifier());
             $product->add("ram:Name", $line->getName());
 
-            $tradeAgreement = $lineBlock->add("ram:SpecifiedLineTradeAgreement");
-            $tradeAgreement->add("ram:GrossPriceProductTradePrice")
+            $agreement = $lineItem->add("ram:SpecifiedLineTradeAgreement");
+
+            $agreement->add("ram:GrossPriceProductTradePrice")
                 ->add("ram:ChargeAmount", $line->getPrice());
-            $tradeAgreement->add("ram:NetPriceProductTradePrice")
+
+            $agreement->add("ram:NetPriceProductTradePrice")
                 ->add("ram:ChargeAmount", $line->getNetAmount());
 
-            $lineBlock->add("ram:SpecifiedLineTradeDelivery")->add("ram:BilledQuantity", $line->getQuantity(), [
-                "unitCode" => $line->getUnit()
-            ]);
-
-            $settlement = $lineBlock->add("ram:SpecifiedLineTradeSettlement");
-            $applicableTradeTax = $settlement->add("ram:ApplicableTradeTax");
-            $applicableTradeTax->add("ram:TypeCode", "VAT");
-            $applicableTradeTax->add("ram:CategoryCode", $line->getVatCategory());
-            $applicableTradeTax->add("ram:RateApplicablePercent", $line->getVatRate());
-
-            if (!is_null($line->getPeriodStartDate()) && !is_null($line->getPeriodEndDate())) {
-                $billingPeriod = $settlement->add("ram:BillingSpecifiedPeriod");
-                $billingPeriod->add("ram:StartDateTime")->add("udt:DateTimeString", $line->getPeriodStartDate()?->format("Ymd"), [
-                    "format" => "102"
+            $lineItem->add("ram:SpecifiedLineTradeDelivery")
+                ->add("ram:BilledQuantity", $line->getQuantity(), [
+                    "unitCode" => $line->getUnit()
                 ]);
-                $billingPeriod->add("ram:EndDateTime")->add("udt:DateTimeString", $line->getPeriodEndDate()?->format("Ymd"), [
-                    "format" => "102"
-                ]);
+
+            $settlement = $lineItem->add("ram:SpecifiedLineTradeSettlement");
+
+            $this->addLineTradeTax($settlement, $line);
+
+            if ($line->getPeriodStartDate() && $line->getPeriodEndDate()) {
+                $this->addBillingPeriod($settlement, $line);
             }
-            $lineBlock
+
+            $settlement
                 ->add("ram:SpecifiedTradeSettlementLineMonetarySummation")
                 ->add("ram:LineTotalAmount", $line->getNetAmount());
-
-
         }
     }
 
-    private function partyBody(UXML $parent, Party $party)
+    private function addLineTradeTax(UXML $parent, $line): void
     {
-        $electronicAddress = $party->getElectronicAddress();
-        $companyId = $party->getCompanyId();
-        $parent->add("ram:GlobalID", $electronicAddress->getValue(), [
-            "schemeID" => $electronicAddress->getScheme()
-        ]);
-        $parent->add("ram:Name", $party->getName());
-        $parent
-            ->add("ram:SpecifiedLegalOrganization")
-            ->add("ram:ID", $companyId->getValue(), [
-                "schemeID" => $companyId->getScheme()
-            ]);
-        $parent
-            ->add("ram:SpecifiedTaxRegistration")
-            ->add("ram:ID", $party->getVatNumber());
+        $tax = $parent->add("ram:ApplicableTradeTax");
+        $tax->add("ram:TypeCode", "VAT");
+        $tax->add("ram:CategoryCode", $line->getVatCategory());
+        $tax->add("ram:RateApplicablePercent", $line->getVatRate());
     }
 
+    private function addBillingPeriod(UXML $parent, $line): void
+    {
+        $period = $parent->add("ram:BillingSpecifiedPeriod");
+
+        $period->add("ram:StartDateTime")
+            ->add("udt:DateTimeString", $line->getPeriodStartDate()->format("Ymd"), [
+                "format" => "102"
+            ]);
+
+        $period->add("ram:EndDateTime")
+            ->add("udt:DateTimeString", $line->getPeriodEndDate()->format("Ymd"), [
+                "format" => "102"
+            ]);
+    }
+
+    /* ================= HEADER ================= */
+
+    private function addHeaderAgreement(UXML $parent, Invoice $invoice): void
+    {
+        $agreement = $parent->add("ram:ApplicableHeaderTradeAgreement");
+        $this->addParty($agreement->add("ram:SellerTradeParty"), $invoice->getSeller());
+        $this->addParty($agreement->add("ram:BuyerTradeParty"), $invoice->getBuyer());
+    }
+
+    private function addHeaderDelivery(UXML $parent, Invoice $invoice): void
+    {
+        $parent->add("ram:ApplicableHeaderTradeDelivery")
+            ->add("ram:ActualDeliverySupplyChainEvent")
+            ->add("ram:OccurrenceDateTime")
+            ->add("udt:DateTimeString", $invoice->getIssueDate()?->format("Ymd"), [
+                "format" => "102"
+            ]);
+    }
+
+    private function addHeaderSettlement(UXML $parent, Invoice $invoice): void
+    {
+        $settlement = $parent->add("ram:ApplicableHeaderTradeSettlement");
+        $settlement->add("ram:InvoiceCurrencyCode", $invoice->getCurrency());
+
+        foreach ($invoice->getTotals()->vatBreakdown as $item) {
+            $this->addHeaderTradeTax($settlement, $item);
+        }
+
+        $this->addPaymentTerms($settlement, $invoice);
+        $this->addMonetarySummation($settlement, $invoice);
+    }
+
+    private function addHeaderTradeTax(UXML $parent, $item): void
+    {
+        $tax = $parent->add("ram:ApplicableTradeTax");
+        $tax->add("ram:CalculatedAmount", $item->taxAmount);
+        $tax->add("ram:TypeCode", "VAT");
+        $tax->add("ram:BasisAmount", $item->taxableAmount);
+        $tax->add("ram:CategoryCode", $item->category);
+        $tax->add("ram:RateApplicablePercent", $item->rate);
+    }
+
+    private function addPaymentTerms(UXML $parent, Invoice $invoice): void
+    {
+        $parent->add("ram:SpecifiedTradePaymentTerms")
+            ->add("ram:DueDateDateTime")
+            ->add("udt:DateTimeString", $invoice->getIssueDate()?->format("Ymd"), [
+                "format" => "102"
+            ]);
+    }
+
+    private function addMonetarySummation(UXML $parent, Invoice $invoice): void
+    {
+        $totals = $invoice->getTotals();
+        $currency = $invoice->getCurrency();
+
+        $sum = $parent->add("ram:SpecifiedTradeSettlementHeaderMonetarySummation");
+
+        $sum->add("ram:LineTotalAmount", $totals->taxExclusiveAmount);
+        $sum->add("ram:TaxBasisTotalAmount", $totals->taxExclusiveAmount);
+
+        $sum->add("ram:TaxTotalAmount", $totals->vatAmount, [
+            "currencyID" => $currency
+        ]);
+
+        $sum->add("ram:GrandTotalAmount", $totals->taxInclusiveAmount);
+        $sum->add("ram:DuePayableAmount", $totals->payableAmount);
+    }
+
+    /* ================= PARTIES ================= */
+
+    private function addParty(UXML $parent, Party $party): void
+    {
+        $companyId = $party->getCompanyId();
+
+        $parent->add("ram:GlobalID", $companyId->getValue(), [
+            "schemeID" => $companyId->getScheme()
+        ]);
+
+        $parent->add("ram:Name", $party->getName());
+
+        $this->addLegalOrganization($parent, $party);
+        $this->addPostalAddress($parent, $party);
+        $this->addElectronicAddress($parent, $party);
+        $this->addVatRegistration($parent, $party);
+    }
+
+    private function addLegalOrganization(UXML $parent, Party $party): void
+    {
+        foreach ($party->getIdentifiers() as $identifier) {
+            if ($identifier->getScheme() === '0002') {
+                $org = $parent->add("ram:SpecifiedLegalOrganization");
+                $org->add("ram:ID", $identifier->getValue(), [
+                    "schemeID" => "0002"
+                ]);
+                return;
+            }
+        }
+
+        throw new \Exception("Missing legal organization identifier (0002)");
+    }
+
+    private function addPostalAddress(UXML $parent, Party $party): void
+    {
+        $addr = $parent->add("ram:PostalTradeAddress");
+        $addr->add("ram:PostcodeCode", $party->getPostalCode());
+        $addr->add("ram:LineOne", implode("\n", $party->getAddress()));
+        $addr->add("ram:CityName", $party->getCity());
+        $addr->add("ram:CountryID", $party->getCountry());
+    }
+
+    private function addElectronicAddress(UXML $parent, Party $party): void
+    {
+        $ea = $party->getElectronicAddress();
+
+        $parent->add("ram:URIUniversalCommunication")
+            ->add("ram:URIID", $ea->getValue(), [
+                "schemeID" => $ea->getScheme()
+            ]);
+    }
+
+    private function addVatRegistration(UXML $parent, Party $party): void
+    {
+        $parent->add("ram:SpecifiedTaxRegistration")
+            ->add("ram:ID", $party->getVatNumber(), [
+                "schemeID" => "VA"
+            ]);
+    }
 }
