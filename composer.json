@@ -1,6 +1,6 @@
 {
     "name": "josemmo/einvoicing",
-    "version": "0.5.0",
+    "version": "0.4.0-dev",
     "description": "Library for reading and creating European-compliant electronic invoices (EN 16931)",
     "keywords": [
         "invoicing",
@@ -16,11 +16,6 @@
             "name": "José Miguel Moreno",
             "email": "josemmo@pm.me",
             "homepage": "https://github.com/josemmo"
-        },
-        {
-            "name": "Rémi Caillot",
-            "email": "rcaillot@nicoka.com",
-            "homepage": "https://github.com/nicoka-orinea"
         }
     ],
     "autoload": {
