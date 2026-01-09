@@ -4,6 +4,7 @@ namespace Einvoicing\Writers;
 
 use Einvoicing\AllowanceOrCharge;
 use Einvoicing\Invoice;
+use Einvoicing\Models\VatBreakdown;
 use Einvoicing\Party;
 use UXML\UXML;
 
@@ -44,7 +45,7 @@ class CiiWriter extends AbstractWriter
     {
         $xml->add("rsm:ExchangedDocumentContext")
             ->add("ram:GuidelineSpecifiedDocumentContextParameter")
-            ->add("ram:ID", "urn:factur-x.eu:1p0:en16931");
+            ->add("ram:ID", "urn:cen.eu:en16931:2017");
     }
 
     private function addExchangedDocument(UXML $xml, Invoice $invoice): void
@@ -75,15 +76,15 @@ class CiiWriter extends AbstractWriter
             $product->add("ram:SellerAssignedID", $line->getSellerIdentifier());
             $product->add("ram:Name", $line->getName());
 
+            // EN16931/CII : les prix sont HT (pas de conversion via TVA).
             $agreement = $lineItem->add("ram:SpecifiedLineTradeAgreement");
 
-            $vatRate = $line->getVatRate(); // ex: 20
-            $netUnitPrice = $line->getPrice() / $line->getBaseQuantity();
+            $baseQty = max(1.0, (float)$line->getBaseQuantity());
+            $netUnitPrice = (float)$line->getPrice() / $baseQty;
 
-            $grossUnitPrice = $netUnitPrice / (1 + $vatRate / 100);
-
+            // Si vous ne gérez pas de "gross price" distinct (avant remises), gardez-les égaux.
             $agreement->add("ram:GrossPriceProductTradePrice")
-                ->add("ram:ChargeAmount", $grossUnitPrice);
+                ->add("ram:ChargeAmount", $netUnitPrice);
 
             $agreement->add("ram:NetPriceProductTradePrice")
                 ->add("ram:ChargeAmount", $netUnitPrice);
@@ -93,18 +94,33 @@ class CiiWriter extends AbstractWriter
                     "unitCode" => $line->getUnit()
                 ]);
 
-
             $settlement = $lineItem->add("ram:SpecifiedLineTradeSettlement");
 
+            $this->addLineTradeTax($settlement, $line);
+
+            $baseAmountForPercent = (float)$line->getNetAmountBeforeAllowancesCharges();
+
             foreach ($line->getCharges() as $charge) {
-                $this->addLineAllowanceOrCharge($settlement, $charge, true, $line->getNetAmountBeforeAllowancesCharges());
+                $this->addLineAllowanceOrCharge(
+                    $settlement,
+                    $charge,
+                    true,
+                    $baseAmountForPercent,
+                    $line->getVatCategory(),
+                    $line->getVatRate()
+                );
             }
 
             foreach ($line->getAllowances() as $allowance) {
-                $this->addLineAllowanceOrCharge($settlement, $allowance, false, $line->getNetAmountBeforeAllowancesCharges());
+                $this->addLineAllowanceOrCharge(
+                    $settlement,
+                    $allowance,
+                    false,
+                    $baseAmountForPercent,
+                    $line->getVatCategory(),
+                    $line->getVatRate()
+                );
             }
-
-            $this->addLineTradeTax($settlement, $line);
 
             if ($line->getPeriodStartDate() && $line->getPeriodEndDate()) {
                 $this->addBillingPeriod($settlement, $line);
@@ -120,26 +136,23 @@ class CiiWriter extends AbstractWriter
         UXML              $parent,
         AllowanceOrCharge $item,
         bool              $isCharge,
-        float             $baseAmount
+        float             $baseAmount,
+        ?string           $fallbackVatCategory,
+        ?float            $fallbackVatRate
     ): void
     {
         $ac = $parent->add("ram:SpecifiedTradeAllowanceCharge");
 
-        // Charge ou remise
         $ac->add("ram:ChargeIndicator")
             ->add("udt:Indicator", $isCharge ? 'true' : 'false');
 
-        // Reason code (facultatif mais recommandé)
         if ($item->getReasonCode()) {
             $ac->add("ram:ReasonCode", $item->getReasonCode());
         }
-
-        // Reason text
         if ($item->getReason()) {
             $ac->add("ram:Reason", $item->getReason());
         }
 
-        // Pourcentage vs montant fixe
         if ($item->isPercentage()) {
             $ac->add("ram:CalculationPercent", $item->getAmount());
             $ac->add("ram:BasisAmount", $baseAmount);
@@ -148,16 +161,24 @@ class CiiWriter extends AbstractWriter
             $actualAmount = $item->getAmount();
         }
 
-        // Montant effectif (toujours positif)
+        // EN16931: ActualAmount est un montant positif, le sens est donné par ChargeIndicator
         $ac->add("ram:ActualAmount", $actualAmount);
 
-        // TVA associée
-        $tax = $ac->add("ram:CategoryTradeTax");
-        $tax->add("ram:TypeCode", "VAT");
-        $tax->add("ram:CategoryCode", $item->getVatCategory());
-        $tax->add("ram:RateApplicablePercent", $item->getVatRate());
-    }
+        // TVA : si l'objet ne porte pas l'info, on hérite de la ligne
+        $vatCategory = $item->getVatCategory() ?: $fallbackVatCategory;
+        $vatRate = $item->getVatRate() ?? $fallbackVatRate;
 
+        if ($vatCategory !== null || $vatRate !== null) {
+            $tax = $ac->add("ram:CategoryTradeTax");
+            $tax->add("ram:TypeCode", "VAT");
+            if ($vatCategory !== null) {
+                $tax->add("ram:CategoryCode", $vatCategory);
+            }
+            if ($vatRate !== null) {
+                $tax->add("ram:RateApplicablePercent", $vatRate);
+            }
+        }
+    }
 
     private function addLineTradeTax(UXML $parent, $line): void
     {
@@ -205,32 +226,165 @@ class CiiWriter extends AbstractWriter
     {
         $settlement = $parent->add("ram:ApplicableHeaderTradeSettlement");
         $settlement->add("ram:InvoiceCurrencyCode", $invoice->getCurrency());
+
         $totals = $invoice->getTotals();
 
+        // Taxes header (par taux/catégorie)
         foreach ($totals->vatBreakdown as $item) {
             $this->addHeaderTradeTax($settlement, $item);
         }
 
+        /**
+         * Remises/majorations "facture" (header):
+         * En cas de multi-taux, il faut SPLITTER par VAT breakdown.
+         * Base EN16931 = HT (taxExclusive / taxable amounts), pas TTC.
+         */
         foreach ($invoice->getCharges() as $charge) {
-            $this->addLineAllowanceOrCharge($settlement, $charge, true, $totals->taxInclusiveAmount);
+            $this->addHeaderAllowanceOrChargeSplitByVat($settlement, $charge, true, $totals->vatBreakdown);
         }
-
         foreach ($invoice->getAllowances() as $allowance) {
-            $this->addLineAllowanceOrCharge($settlement, $allowance, false, $totals->taxInclusiveAmount);
+            $this->addHeaderAllowanceOrChargeSplitByVat($settlement, $allowance, false, $totals->vatBreakdown);
         }
 
         $this->addPaymentTerms($settlement, $invoice);
         $this->addMonetarySummation($settlement, $invoice);
     }
 
-    private function addHeaderTradeTax(UXML $parent, $item): void
+    private function addHeaderTradeTax(UXML $parent, VatBreakdown $item): void
     {
-        $tax = $parent->add("ram:ApplicableTradeTax");
-        $tax->add("ram:CalculatedAmount", $item->taxAmount);
+        if ($item->rate !== null) {
+            $tax = $parent->add("ram:ApplicableTradeTax");
+            $tax->add("ram:CalculatedAmount", $item->taxAmount);
+            $tax->add("ram:TypeCode", "VAT");
+            $tax->add("ram:BasisAmount", $item->taxableAmount);
+            $tax->add("ram:CategoryCode", $item->category);
+            $tax->add("ram:RateApplicablePercent", $item->rate);
+        }
+    }
+
+    /**
+     * Split d’une remise/majoration header sur plusieurs taux de TVA.
+     *
+     * - Si % : amount appliqué sur chaque taxableAmount.
+     * - Si montant fixe : répartition au prorata des taxableAmount.
+     */
+    private function addHeaderAllowanceOrChargeSplitByVat(
+        UXML              $parent,
+        AllowanceOrCharge $item,
+        bool              $isCharge,
+        array             $vatBreakdown
+    ): void
+    {
+        // Filtrer les lignes de breakdown significatives (base taxable > 0)
+        $lines = array_values(array_filter($vatBreakdown, function ($b) {
+            return isset($b->taxableAmount) && (float)$b->taxableAmount > 0;
+        }));
+
+        if (empty($lines)) {
+            // Si aucun breakdown exploitable : on ne peut pas splitter proprement
+            // -> on génère quand même une allowance/charge sans RateApplicablePercent
+            $this->addHeaderAllowanceOrChargeSingle($parent, $item, $isCharge, null, null, null);
+            return;
+        }
+
+        $totalTaxable = 0.0;
+        foreach ($lines as $b) {
+            $totalTaxable += (float)$b->taxableAmount;
+        }
+        if ($totalTaxable <= 0) {
+            $this->addHeaderAllowanceOrChargeSingle($parent, $item, $isCharge, null, null, null);
+            return;
+        }
+
+        if ($item->isPercentage()) {
+            $percent = (float)$item->getAmount();
+
+            foreach ($lines as $b) {
+                $basis = (float)$b->taxableAmount;
+                $actual = $basis * ($percent / 100);
+
+                $this->addHeaderAllowanceOrChargeSingle(
+                    $parent,
+                    $item,
+                    $isCharge,
+                    $basis,
+                    $actual,
+                    $b
+                );
+            }
+            return;
+        }
+
+        // Montant fixe : répartition proportionnelle
+        $fixedTotal = (float)$item->getAmount();
+
+        foreach ($lines as $b) {
+            $basis = (float)$b->taxableAmount;
+            $ratio = $basis / $totalTaxable;
+            $actual = $fixedTotal * $ratio;
+
+            $this->addHeaderAllowanceOrChargeSingle(
+                $parent,
+                $item,
+                $isCharge,
+                null,      // pas de BasisAmount nécessaire si montant fixe
+                $actual,
+                $b
+            );
+        }
+    }
+
+    private function addHeaderAllowanceOrChargeSingle(
+        UXML              $parent,
+        AllowanceOrCharge $item,
+        bool              $isCharge,
+        ?float            $basisAmount,
+        ?float            $actualAmount,
+                          $vatLine // VatBreakdown|null
+    ): void
+    {
+        $ac = $parent->add("ram:SpecifiedTradeAllowanceCharge");
+
+        $ac->add("ram:ChargeIndicator")
+            ->add("udt:Indicator", $isCharge ? 'true' : 'false');
+
+        if ($item->getReasonCode()) {
+            $ac->add("ram:ReasonCode", $item->getReasonCode());
+        }
+        if ($item->getReason()) {
+            $ac->add("ram:Reason", $item->getReason());
+        }
+
+        if ($item->isPercentage()) {
+            $ac->add("ram:CalculationPercent", (float)$item->getAmount());
+            if ($basisAmount !== null) {
+                $ac->add("ram:BasisAmount", $basisAmount);
+            }
+        }
+
+        // ActualAmount requis pour porter le montant effectif
+        $ac->add("ram:ActualAmount", $actualAmount ?? (float)$item->getAmount());
+
+        // TVA associée : au header, on la met par split (catégorie + taux)
+        $tax = $ac->add("ram:CategoryTradeTax");
         $tax->add("ram:TypeCode", "VAT");
-        $tax->add("ram:BasisAmount", $item->taxableAmount);
-        $tax->add("ram:CategoryCode", $item->category);
-        $tax->add("ram:RateApplicablePercent", $item->rate);
+
+        if ($vatLine !== null) {
+            if (!empty($vatLine->category)) {
+                $tax->add("ram:CategoryCode", $vatLine->category);
+            }
+            if ($vatLine->rate !== null) {
+                $tax->add("ram:RateApplicablePercent", $vatLine->rate);
+            }
+        } else {
+            // fallback minimal : pas de rate
+            if ($item->getVatCategory()) {
+                $tax->add("ram:CategoryCode", $item->getVatCategory());
+            }
+            if ($item->getVatRate() !== null) {
+                $tax->add("ram:RateApplicablePercent", $item->getVatRate());
+            }
+        }
     }
 
     private function addPaymentTerms(UXML $parent, Invoice $invoice): void
