@@ -140,14 +140,14 @@ class CiiReader extends AbstractReader
                 $bank = $paymentMeans->get("ram:PayeeSpecifiedCreditorFinancialInstitution")->get("ram:BICID");
 
                 $invoice->addPayment((new Payment())
-                    ->setId($paymentRef)
-                    ->setMeansCode($paymentMethodType)
-                    ->setMeansText($paymentMethod)
+                    ->setId($paymentRef->asText())
+                    ->setMeansCode($paymentMethodType->asText())
+                    ->setMeansText($paymentMethod->asText())
                     ->addTransfer(
                         (new Transfer())
-                            ->setAccountId($iban)
-                            ->setAccountName($accountName)
-                            ->setProvider($bank)
+                            ->setAccountId($iban->asText())
+                            ->setAccountName($accountName->asText())
+                            ->setProvider($bank->asText())
                     )
                 );
                 // BT-6: VAT accounting currency code
