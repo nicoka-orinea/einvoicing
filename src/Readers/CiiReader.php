@@ -1,4 +1,5 @@
 <?php
+
 namespace Einvoicing\Readers;
 
 use DateTime;
@@ -8,18 +9,22 @@ use Einvoicing\Identifier;
 use Einvoicing\Invoice;
 use Einvoicing\InvoiceLine;
 use Einvoicing\Party;
+use Einvoicing\Payments\Payment;
+use Einvoicing\Payments\Transfer;
 use Einvoicing\Writers\CiiWriter;
 use InvalidArgumentException;
 use UXML\UXML;
 use function floatval;
 use function implode;
 
-class CiiReader extends AbstractReader {
+class CiiReader extends AbstractReader
+{
     /**
      * @inheritdoc
      * @throws InvalidArgumentException if failed to parse XML
      */
-    public function import(string $document): Invoice {
+    public function import(string $document): Invoice
+    {
         $invoice = new Invoice();
 
         // Load XML document
@@ -52,7 +57,7 @@ class CiiReader extends AbstractReader {
             // BT-3: Invoice type code
             $typeNode = $exchangedDoc->get("ram:TypeCode");
             if ($typeNode !== null) {
-                $invoice->setType((int) $typeNode->asText());
+                $invoice->setType((int)$typeNode->asText());
             }
 
             // BT-2: Issue date
@@ -119,11 +124,32 @@ class CiiReader extends AbstractReader {
             $settlement = $transaction->get("ram:ApplicableHeaderTradeSettlement");
             if ($settlement !== null) {
                 // BT-5: Invoice currency code
+                $paymentRef = $settlement->get("ram:PaymentReference");
                 $currencyNode = $settlement->get("ram:InvoiceCurrencyCode");
                 if ($currencyNode !== null) {
                     $invoice->setCurrency($currencyNode->asText());
                 }
 
+                $paymentMeans = $settlement->get("ram:SpecifiedTradeSettlementPaymentMeans");
+                $paymentMethodType = $paymentMeans->get("ram:TypeCode");
+                $paymentMethod = $paymentMeans->get("ram:Information");
+                $finAccount = $paymentMeans->get("ram:PayeePartyCreditorFinancialAccount");
+                $iban = $finAccount->get("ram:IBANID");
+                $accountName = $finAccount->get("ram:AccountName");
+
+                $bank = $paymentMeans->get("ram:PayeeSpecifiedCreditorFinancialInstitution")->get("ram:BICID");
+
+                $invoice->addPayment((new Payment())
+                    ->setId($paymentRef)
+                    ->setMeansCode($paymentMethodType)
+                    ->setMeansText($paymentMethod)
+                    ->addTransfer(
+                        (new Transfer())
+                            ->setAccountId($iban)
+                            ->setAccountName($accountName)
+                            ->setProvider($bank)
+                    )
+                );
                 // BT-6: VAT accounting currency code
                 $vatCurrencyNode = $settlement->get("ram:TaxCurrencyCode");
                 if ($vatCurrencyNode !== null) {
@@ -162,13 +188,13 @@ class CiiReader extends AbstractReader {
                 // BT-113: Paid amount
                 $paidAmountNode = $settlement->get("ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TotalPrepaidAmount");
                 if ($paidAmountNode !== null) {
-                    $invoice->setPaidAmount((float) $paidAmountNode->asText());
+                    $invoice->setPaidAmount((float)$paidAmountNode->asText());
                 }
 
                 // BT-114: Rounding amount
                 $roundingAmountNode = $settlement->get("ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:RoundingAmount");
                 if ($roundingAmountNode !== null) {
-                    $invoice->setRoundingAmount((float) $roundingAmountNode->asText());
+                    $invoice->setRoundingAmount((float)$roundingAmountNode->asText());
                 }
             }
 
@@ -181,7 +207,8 @@ class CiiReader extends AbstractReader {
         return $invoice;
     }
 
-    private function parseDateTime(UXML $node): DateTime {
+    private function parseDateTime(UXML $node): DateTime
+    {
         $format = $node->element()->getAttribute('format');
         $value = $node->asText();
         if ($format === '102') {
@@ -190,9 +217,10 @@ class CiiReader extends AbstractReader {
         return new DateTime($value);
     }
 
-    private function parsePartyNode(UXML $xml): Party {
+    private function parsePartyNode(UXML $xml): Party
+    {
         $party = new Party();
-        
+
         // BT-29: Global ID
         $globalIdNode = $xml->get("ram:GlobalID");
         if ($globalIdNode !== null) {
@@ -223,7 +251,7 @@ class CiiReader extends AbstractReader {
             $party->setPostalCode($addressNode->get("ram:PostcodeCode")?->asText());
             $party->setCity($addressNode->get("ram:CityName")?->asText());
             $party->setCountry($addressNode->get("ram:CountryID")?->asText());
-            
+
             $lines = [];
             if (($line = $addressNode->get("ram:LineOne")?->asText()) !== null) $lines[] = $line;
             if (($line = $addressNode->get("ram:LineTwo")?->asText()) !== null) $lines[] = $line;
@@ -258,15 +286,17 @@ class CiiReader extends AbstractReader {
         return $party;
     }
 
-    private function parseIdentifierNode(UXML $xml): Identifier {
+    private function parseIdentifierNode(UXML $xml): Identifier
+    {
         $value = $xml->asText();
         $scheme = $xml->element()->hasAttribute('schemeID') ? $xml->element()->getAttribute('schemeID') : null;
         return new Identifier($value, $scheme);
     }
 
-    private function parseDeliveryNode(UXML $xml): Delivery {
+    private function parseDeliveryNode(UXML $xml): Delivery
+    {
         $delivery = new Delivery();
-        
+
         // BT-72: Actual delivery date
         $dateNode = $xml->get("ram:ActualDeliverySupplyChainEvent/ram:OccurrenceDateTime/udt:DateTimeString");
         if ($dateNode !== null) {
@@ -276,23 +306,24 @@ class CiiReader extends AbstractReader {
         return $delivery;
     }
 
-    private function addAllowanceOrCharge($target, UXML $xml) {
+    private function addAllowanceOrCharge($target, UXML $xml)
+    {
         $ac = new AllowanceOrCharge();
-        
+
         $indicatorNode = $xml->get("ram:ChargeIndicator/udt:Indicator");
         $isCharge = ($indicatorNode !== null && $indicatorNode->asText() === 'true');
-        
+
         if ($isCharge) {
             $target->addCharge($ac);
         } else {
             $target->addAllowance($ac);
         }
 
-        $ac->setAmount((float) ($xml->get("ram:ActualAmount")?->asText() ?? 0));
-        
+        $ac->setAmount((float)($xml->get("ram:ActualAmount")?->asText() ?? 0));
+
         $percentNode = $xml->get("ram:CalculationPercent");
         if ($percentNode !== null) {
-            $ac->markAsPercentage()->setAmount((float) $percentNode->asText());
+            $ac->markAsPercentage()->setAmount((float)$percentNode->asText());
         }
 
         $ac->setReasonCode($xml->get("ram:ReasonCode")?->asText());
@@ -304,14 +335,15 @@ class CiiReader extends AbstractReader {
             $ac->setVatCategory($taxNode->get("ram:CategoryCode")?->asText());
             $rateNode = $taxNode->get("ram:RateApplicablePercent");
             if ($rateNode !== null) {
-                $ac->setVatRate((float) $rateNode->asText());
+                $ac->setVatRate((float)$rateNode->asText());
             }
         }
     }
 
-    private function parseInvoiceLine(UXML $xml): InvoiceLine {
+    private function parseInvoiceLine(UXML $xml): InvoiceLine
+    {
         $line = new InvoiceLine();
-        
+
         // BT-126: Line ID
         $line->setId($xml->get("ram:AssociatedDocumentLineDocument/ram:LineID")?->asText());
 
@@ -342,12 +374,12 @@ class CiiReader extends AbstractReader {
         if ($agreement !== null) {
             $priceNode = $agreement->get("ram:NetPriceProductTradePrice/ram:ChargeAmount");
             if ($priceNode !== null) {
-                $line->setPrice((float) $priceNode->asText());
+                $line->setPrice((float)$priceNode->asText());
             }
-            
+
             $baseQtyNode = $agreement->get("ram:NetPriceProductTradePrice/ram:BasisQuantity");
             if ($baseQtyNode !== null) {
-                $line->setBaseQuantity((float) $baseQtyNode->asText());
+                $line->setBaseQuantity((float)$baseQtyNode->asText());
             }
 
             // BT-132: Order line reference
@@ -359,7 +391,7 @@ class CiiReader extends AbstractReader {
         if ($delivery !== null) {
             $qtyNode = $delivery->get("ram:BilledQuantity");
             if ($qtyNode !== null) {
-                $line->setQuantity((float) $qtyNode->asText());
+                $line->setQuantity((float)$qtyNode->asText());
                 $line->setUnit($qtyNode->element()->getAttribute('unitCode'));
             }
         }
@@ -373,7 +405,7 @@ class CiiReader extends AbstractReader {
                 $line->setVatCategory($taxNode->get("ram:CategoryCode")?->asText());
                 $rateNode = $taxNode->get("ram:RateApplicablePercent");
                 if ($rateNode !== null) {
-                    $line->setVatRate((float) $rateNode->asText());
+                    $line->setVatRate((float)$rateNode->asText());
                 }
             }
 
