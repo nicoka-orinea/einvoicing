@@ -4,9 +4,13 @@ namespace Einvoicing\Cdar\Mapping;
 use Einvoicing\Cdar\Enums\ProcessConditionCode;
 use Einvoicing\Cdar\Enums\StatusCode;
 
+/**
+ * CDAR mapping helper for process conditions and statuses.
+ */
 class CdarStatusMap
 {
     /**
+     * Get all CDAR status definitions.
      * @return array<int, CdarStatusDefinition>
      */
     public static function all(): array
@@ -23,6 +27,9 @@ class CdarStatusMap
         ];
     }
 
+    /**
+     * Get the mapping definition for a process condition code.
+     */
     public static function forProcessConditionCode(ProcessConditionCode|int $code): ?CdarStatusDefinition
     {
         $code = $code instanceof ProcessConditionCode ? $code->value : $code;
@@ -30,6 +37,7 @@ class CdarStatusMap
     }
 
     /**
+     * Get all definitions matching a status code.
      * @return CdarStatusDefinition[]
      */
     public static function forStatusCode(StatusCode|int $statusCode): array

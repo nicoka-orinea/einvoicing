@@ -15,6 +15,9 @@ use Einvoicing\CrossDomainAcknowledgementAndResponse;
 use UXML\UXML;
 use function is_numeric;
 
+/**
+ * Writer for CDAR XML documents.
+ */
 class CdarWriter
 {
     public const NS_QDT = 'urn:un:unece:uncefact:data:standard:QualifiedDataType:100';
@@ -22,6 +25,9 @@ class CdarWriter
     public const NS_RAM = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
     public const NS_RSM = 'urn:un:unece:uncefact:data:standard:CrossDomainAcknowledgementAndResponse:100';
 
+    /**
+     * Export a CDAR instance to XML.
+     */
     public function export(CrossDomainAcknowledgementAndResponse $cdar): string
     {
         $xml = $this->createRoot();

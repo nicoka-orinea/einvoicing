@@ -45,4 +45,20 @@ nav:
     - EU e-Invoicing core concepts: getting-started/eu-einvoicing-concepts.md
     - Creating your first invoice: getting-started/your-first-invoice.md
     - Importing, exporting and validating documents: getting-started/importing-exporting-and-validating.md
+    - CDAR status mapping: getting-started/cdar-status-mapping.md
+    - Importing CDAR XML: getting-started/importing-cdar.md
+    - Exporting CDAR XML: getting-started/exporting-cdar.md
     - Creating custom presets: getting-started/creating-custom-presets.md
+  - Reference:
+    - CDAR overview: reference/cdar-overview.md
+    - CrossDomainAcknowledgementAndResponse: reference/cross-domain-acknowledgement-and-response.md
+    - DocumentContext: reference/cdar-document-context.md
+    - TradeParty: reference/cdar-trade-party.md
+    - ExchangedDocument: reference/cdar-exchanged-document.md
+    - AcknowledgementDocument: reference/cdar-acknowledgement-document.md
+    - ReferenceReferencedDocument: reference/cdar-reference-referenced-document.md
+    - SpecifiedDocumentStatus: reference/cdar-specified-document-status.md
+    - SpecifiedDocumentCharacteristic: reference/cdar-specified-document-characteristic.md
+    - ValueAmount: reference/cdar-value-amount.md
+    - CDAR enums: reference/cdar-enums.md
+    - CDAR mapping: reference/cdar-mapping.md
