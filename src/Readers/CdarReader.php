@@ -17,9 +17,6 @@ use UXML\UXML;
 use function floatval;
 use ValueError;
 
-/**
- * Reader for CDAR XML documents.
- */
 class CdarReader
 {
     /**

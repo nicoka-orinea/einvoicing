@@ -1,9 +1,6 @@
 <?php
 namespace Einvoicing\Cdar\Enums;
 
-/**
- * CDAR status codes from acknowledgement document.
- */
 enum StatusCode: int
 {
     case SUBMITTED = 10;
@@ -14,10 +11,6 @@ enum StatusCode: int
     case MADE_AVAILABLE = 48;
     case APPROVED = 1;
 
-    /**
-     * Get an English label for UI/logs.
-     * Business meaning: human-readable status category.
-     */
     public function label(): string
     {
         return match ($this) {

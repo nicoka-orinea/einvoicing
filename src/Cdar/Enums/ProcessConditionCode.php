@@ -1,9 +1,6 @@
 <?php
 namespace Einvoicing\Cdar\Enums;
 
-/**
- * CDAR process condition codes for lifecycle updates.
- */
 enum ProcessConditionCode: int
 {
     case SUBMITTED = 200;
@@ -15,10 +12,6 @@ enum ProcessConditionCode: int
     case PAYMENT_TRANSMITTED = 211;
     case PAID = 212;
 
-    /**
-     * Get an English label for UI/logs.
-     * Business meaning: lifecycle status label.
-     */
     public function label(): string
     {
         return match ($this) {
@@ -33,10 +26,6 @@ enum ProcessConditionCode: int
         };
     }
 
-    /**
-     * Get the CDAR XML label value.
-     * Business meaning: exact label expected in CDAR XML.
-     */
     public function xmlLabel(): string
     {
         return match ($this) {
@@ -51,10 +40,6 @@ enum ProcessConditionCode: int
         };
     }
 
-    /**
-     * Get the matching status code.
-     * Business meaning: CDAR status category for the lifecycle step.
-     */
     public function statusCode(): StatusCode
     {
         return match ($this) {
