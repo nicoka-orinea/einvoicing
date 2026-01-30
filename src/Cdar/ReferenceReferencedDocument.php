@@ -2,7 +2,6 @@
 namespace Einvoicing\Cdar;
 
 use DateTime;
-use Einvoicing\Cdar\Enums\DocumentTypeCode;
 use Einvoicing\Cdar\Enums\ProcessConditionCode;
 use Einvoicing\Cdar\Enums\StatusCode;
 
@@ -65,7 +64,7 @@ class ReferenceReferencedDocument
 
     /**
      * Get the referenced document type code.
-     * Business meaning: type of document concerned by the CDAR (e.g. invoice).
+     * Business meaning: invoice type (BT-3), e.g. 380.
      */
     public function getTypeCode(): ?string
     {
@@ -73,27 +72,12 @@ class ReferenceReferencedDocument
     }
 
     /**
-     * Get the referenced document type enum.
-     * Business meaning: type of document concerned by the CDAR (e.g. invoice).
-     */
-    public function getDocumentType(): ?DocumentTypeCode
-    {
-        if ($this->typeCode === null) {
-            return null;
-        }
-        return DocumentTypeCode::tryFrom((int) $this->typeCode);
-    }
-
-    /**
      * Set the referenced document type code.
-     * Business meaning: type of document concerned by the CDAR (e.g. invoice).
+     * Business meaning: invoice type (BT-3), e.g. 380.
      */
-    public function setTypeCode(DocumentTypeCode|int|string|null $typeCode): self
+    public function setTypeCode(?string $typeCode): self
     {
-        if ($typeCode instanceof DocumentTypeCode) {
-            $typeCode = $typeCode->value;
-        }
-        $this->typeCode = ($typeCode === null) ? null : (string) $typeCode;
+        $this->typeCode = $typeCode;
         return $this;
     }
 
