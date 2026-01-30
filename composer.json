@@ -28,7 +28,7 @@
         }
     },
     "require": {
-        "php": ">=8.2",
+        "php": ">=7.1",
         "josemmo/uxml": "^0.1.4"
     },
     "require-dev": {
