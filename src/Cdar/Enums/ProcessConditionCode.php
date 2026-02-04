@@ -14,6 +14,7 @@ enum ProcessConditionCode: int
     case IN_DISPUTE = 207;
     case PAYMENT_TRANSMITTED = 211;
     case PAID = 212;
+    case REJECTED = 213;
 
     /**
      * Get an English label for UI/logs.
@@ -30,6 +31,7 @@ enum ProcessConditionCode: int
             self::IN_DISPUTE => 'In dispute',
             self::PAYMENT_TRANSMITTED => 'Payment transmitted',
             self::PAID => 'Paid',
+            self::REJECTED => 'Rejected',
         };
     }
 
@@ -48,6 +50,7 @@ enum ProcessConditionCode: int
             self::IN_DISPUTE => 'En_litige',
             self::PAYMENT_TRANSMITTED => 'Paiement_transmis',
             self::PAID => 'Encaissee',
+            self::REJECTED => 'Rejectée',
         };
     }
 
@@ -66,6 +69,7 @@ enum ProcessConditionCode: int
             self::IN_DISPUTE => StatusCode::IN_DISPUTE,
             self::PAYMENT_TRANSMITTED => StatusCode::PAYMENT_EVENT,
             self::PAID => StatusCode::PAYMENT_EVENT,
+            self::REJECTED => StatusCode::REJECTED,
         };
     }
 }

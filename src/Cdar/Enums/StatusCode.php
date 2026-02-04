@@ -13,6 +13,7 @@ enum StatusCode: int
     case PAYMENT_EVENT = 47;
     case MADE_AVAILABLE = 48;
     case APPROVED = 1;
+    case REJECTED = 8;
 
     /**
      * Get an English label for UI/logs.
@@ -28,6 +29,7 @@ enum StatusCode: int
             self::PAYMENT_EVENT => 'Payment event',
             self::MADE_AVAILABLE => 'Made available',
             self::APPROVED => 'Approved',
+            self::REJECTED => 'Rejected',
         };
     }
 }
