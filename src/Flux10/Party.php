@@ -8,17 +8,68 @@ class Party
      * SIREN or SIRET identifier.
      * @var string|null
      */
-    public $siren = null;
+    protected $siren = null;
 
     /**
      * Party name.
      * @var string|null
      */
-    public $name = null;
+    protected $name = null;
 
     /**
      * VAT identifier.
      * @var string|null
      */
-    public $vatId = null;
+    protected $vatId = null;
+
+    /**
+     * Get SIREN/SIRET identifier.
+     */
+    public function getSiren(): ?string
+    {
+        return $this->siren;
+    }
+
+    /**
+     * Set SIREN/SIRET identifier.
+     */
+    public function setSiren(?string $siren): self
+    {
+        $this->siren = $siren;
+        return $this;
+    }
+
+    /**
+     * Get party name.
+     */
+    public function getName(): ?string
+    {
+        return $this->name;
+    }
+
+    /**
+     * Set party name.
+     */
+    public function setName(?string $name): self
+    {
+        $this->name = $name;
+        return $this;
+    }
+
+    /**
+     * Get VAT ID.
+     */
+    public function getVatId(): ?string
+    {
+        return $this->vatId;
+    }
+
+    /**
+     * Set VAT ID.
+     */
+    public function setVatId(?string $vatId): self
+    {
+        $this->vatId = $vatId;
+        return $this;
+    }
 }

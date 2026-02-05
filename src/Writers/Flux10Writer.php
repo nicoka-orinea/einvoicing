@@ -46,10 +46,10 @@ class Flux10Writer extends AbstractMultiWriter
         $xml = $this->createRoot();
 
         $this->addReportHeaderFromReport($xml, $report);
-        $this->addInvoices($xml, $report->invoices);
-        $this->addInvoicePayments($xml, $report->invoicePayments);
-        $this->addTransactions($xml, $report->transactions);
-        $this->addTransactionPayments($xml, $report->transactionPayments);
+        $this->addInvoices($xml, $report->getInvoices());
+        $this->addInvoicePayments($xml, $report->getInvoicePayments());
+        $this->addTransactions($xml, $report->getTransactions());
+        $this->addTransactionPayments($xml, $report->getTransactionPayments());
 
         return $xml->asXML();
     }
@@ -61,30 +61,33 @@ class Flux10Writer extends AbstractMultiWriter
 
     private function addReportHeaderFromReport(UXML $xml, Flux10Report $report): void
     {
-        $this->addStringNode($xml, 'reportId', $report->reportId);
-        $this->addStringNode($xml, 'reportName', $report->reportName);
+        $this->addStringNode($xml, 'reportId', $report->getReportId());
+        $this->addStringNode($xml, 'reportName', $report->getReportName());
 
-        $transmissionType = $report->transmissionType;
-        if ($transmissionType === null || $transmissionType === '') {
+        $transmissionType = $report->getTransmissionType();
+        if ($transmissionType === '') {
             $transmissionType = self::DEFAULT_TRANSMISSION_TYPE;
         }
         $this->addStringNode($xml, 'transmissionType', $transmissionType);
 
-        if ($report->sender instanceof Flux10Party) {
-            $this->addPartyNode($xml->add('sender'), $report->sender);
+        $sender = $report->getSender();
+        if ($sender instanceof Flux10Party) {
+            $this->addPartyNode($xml->add('sender'), $sender);
         }
 
-        if ($report->issuer instanceof Flux10Issuer) {
+        $issuer = $report->getIssuer();
+        if ($issuer instanceof Flux10Issuer) {
             $issuerNode = $xml->add('issuer');
-            $this->addPartyNode($issuerNode, $report->issuer);
-            $roleCode = $report->issuer->roleCode?->value;
+            $this->addPartyNode($issuerNode, $issuer);
+            $roleCode = $issuer->getRoleCode()?->value;
             $this->addStringNode($issuerNode, 'roleCode', $roleCode);
         }
 
-        if ($report->period instanceof Flux10Period) {
+        $period = $report->getPeriod();
+        if ($period instanceof Flux10Period) {
             $periodNode = $xml->add('period');
-            $this->addDateNode($periodNode, 'startDate', $report->period->startDate);
-            $this->addDateNode($periodNode, 'endDate', $report->period->endDate);
+            $this->addDateNode($periodNode, 'startDate', $period->getStartDate());
+            $this->addDateNode($periodNode, 'endDate', $period->getEndDate());
         }
     }
 
@@ -101,21 +104,22 @@ class Flux10Writer extends AbstractMultiWriter
             }
 
             $node = $parent->add('invoice');
-            $this->addStringNode($node, 'invoiceId', $invoice->invoiceId);
-            $this->addDateNode($node, 'issueDate', $invoice->issueDate);
-            $this->addStringNode($node, 'typeCode', $invoice->typeCode);
-            $this->addStringNode($node, 'sellerId', $invoice->sellerId);
-            $this->addStringNode($node, 'sellerCountry', $invoice->sellerCountry);
-            $this->addStringNode($node, 'sellerVatId', $invoice->sellerVatId);
-            $this->addStringNode($node, 'buyerId', $invoice->buyerId);
-            $this->addStringNode($node, 'buyerCountry', $invoice->buyerCountry);
-            $this->addStringNode($node, 'buyerVatId', $invoice->buyerVatId);
-            $this->addAmountNode($node, 'taxExclusiveAmount', $invoice->taxExclusiveAmount);
-            $this->addAmountNode($node, 'taxAmount', $invoice->taxAmount);
+            $this->addStringNode($node, 'invoiceId', $invoice->getInvoiceId());
+            $this->addDateNode($node, 'issueDate', $invoice->getIssueDate());
+            $this->addStringNode($node, 'typeCode', $invoice->getTypeCode());
+            $this->addStringNode($node, 'sellerId', $invoice->getSellerId());
+            $this->addStringNode($node, 'sellerCountry', $invoice->getSellerCountry());
+            $this->addStringNode($node, 'sellerVatId', $invoice->getSellerVatId());
+            $this->addStringNode($node, 'buyerId', $invoice->getBuyerId());
+            $this->addStringNode($node, 'buyerCountry', $invoice->getBuyerCountry());
+            $this->addStringNode($node, 'buyerVatId', $invoice->getBuyerVatId());
+            $this->addAmountNode($node, 'taxExclusiveAmount', $invoice->getTaxExclusiveAmount());
+            $this->addAmountNode($node, 'taxAmount', $invoice->getTaxAmount());
 
-            if (!empty($invoice->taxBreakdown)) {
+            $breakdown = $invoice->getTaxBreakdown();
+            if (!empty($breakdown)) {
                 $taxBreakdown = $node->add('taxBreakdown');
-                foreach ($invoice->taxBreakdown as $item) {
+                foreach ($breakdown as $item) {
                     if (!$item instanceof Flux10TaxBreakdown) {
                         continue;
                     }
@@ -138,9 +142,9 @@ class Flux10Writer extends AbstractMultiWriter
             }
 
             $node = $parent->add('invoicePayment');
-            $this->addStringNode($node, 'invoiceId', $payment->invoiceId);
-            $this->addDateNode($node, 'paymentDate', $payment->paymentDate);
-            $this->addAmountNode($node, 'amount', $payment->amount);
+            $this->addStringNode($node, 'invoiceId', $payment->getInvoiceId());
+            $this->addDateNode($node, 'paymentDate', $payment->getPaymentDate());
+            $this->addAmountNode($node, 'amount', $payment->getAmount());
         }
     }
 
@@ -157,14 +161,15 @@ class Flux10Writer extends AbstractMultiWriter
             }
 
             $node = $parent->add('transaction');
-            $this->addDateNode($node, 'date', $transaction->date);
-            $this->addStringNode($node, 'categoryCode', $transaction->categoryCode);
-            $this->addAmountNode($node, 'taxExclusiveAmount', $transaction->taxExclusiveAmount);
-            $this->addAmountNode($node, 'taxAmount', $transaction->taxAmount);
+            $this->addDateNode($node, 'date', $transaction->getDate());
+            $this->addStringNode($node, 'categoryCode', $transaction->getCategoryCode());
+            $this->addAmountNode($node, 'taxExclusiveAmount', $transaction->getTaxExclusiveAmount());
+            $this->addAmountNode($node, 'taxAmount', $transaction->getTaxAmount());
 
-            if (!empty($transaction->taxBreakdown)) {
+            $breakdown = $transaction->getTaxBreakdown();
+            if (!empty($breakdown)) {
                 $taxBreakdown = $node->add('taxBreakdown');
-                foreach ($transaction->taxBreakdown as $item) {
+                foreach ($breakdown as $item) {
                     if (!$item instanceof Flux10TaxBreakdown) {
                         continue;
                     }
@@ -172,11 +177,11 @@ class Flux10Writer extends AbstractMultiWriter
                 }
             }
 
-            if ($transaction->transactionCount !== null) {
-                $node->add('transactionCount', (string) $transaction->transactionCount);
+            if ($transaction->getTransactionCount() !== null) {
+                $node->add('transactionCount', (string) $transaction->getTransactionCount());
             }
 
-            $this->addStringNode($node, 'taxDueDateTypeCode', $transaction->taxDueDateTypeCode);
+            $this->addStringNode($node, 'taxDueDateTypeCode', $transaction->getTaxDueDateTypeCode());
         }
     }
 
@@ -193,17 +198,18 @@ class Flux10Writer extends AbstractMultiWriter
             }
 
             $node = $parent->add('transactionPayment');
-            $this->addDateNode($node, 'paymentDate', $payment->paymentDate);
+            $this->addDateNode($node, 'paymentDate', $payment->getPaymentDate());
 
-            if (!empty($payment->amountsByRate)) {
+            $amountsByRate = $payment->getAmountsByRate();
+            if (!empty($amountsByRate)) {
                 $amounts = $node->add('amountsByRate');
-                foreach ($payment->amountsByRate as $amountByRate) {
+                foreach ($amountsByRate as $amountByRate) {
                     if (!$amountByRate instanceof Flux10AmountByRate) {
                         continue;
                     }
                     $amountNode = $amounts->add('item');
-                    $this->addAmountNode($amountNode, 'rate', $amountByRate->rate);
-                    $this->addAmountNode($amountNode, 'amount', $amountByRate->amount);
+                    $this->addAmountNode($amountNode, 'rate', $amountByRate->getRate());
+                    $this->addAmountNode($amountNode, 'amount', $amountByRate->getAmount());
                 }
             }
         }
@@ -212,49 +218,49 @@ class Flux10Writer extends AbstractMultiWriter
     private function addTaxBreakdownItem(UXML $parent, Flux10TaxBreakdown $item): void
     {
         $node = $parent->add('item');
-        $this->addAmountNode($node, 'rate', $item->rate);
-        $this->addAmountNode($node, 'taxableAmount', $item->taxableAmount);
-        $this->addAmountNode($node, 'taxAmount', $item->taxAmount);
+        $this->addAmountNode($node, 'rate', $item->getRate());
+        $this->addAmountNode($node, 'taxableAmount', $item->getTaxableAmount());
+        $this->addAmountNode($node, 'taxAmount', $item->getTaxAmount());
     }
 
     private function addPartyNode(UXML $node, Flux10Party $party): void
     {
-        $this->addStringNode($node, 'siren', $party->siren);
-        $this->addStringNode($node, 'name', $party->name);
-        $this->addStringNode($node, 'vatId', $party->vatId);
+        $this->addStringNode($node, 'siren', $party->getSiren());
+        $this->addStringNode($node, 'name', $party->getName());
+        $this->addStringNode($node, 'vatId', $party->getVatId());
     }
 
     private function buildReportFromInvoices(array $invoices): Flux10Report
     {
         $report = new Flux10Report();
-        $report->transmissionType = self::DEFAULT_TRANSMISSION_TYPE;
+        $report->setTransmissionType(self::DEFAULT_TRANSMISSION_TYPE);
 
         $issueDateBounds = $this->findIssueDateBounds($invoices);
         $reportId = $this->buildReportId($invoices, $issueDateBounds);
         if ($reportId !== null) {
-            $report->reportId = $reportId;
+            $report->setReportId($reportId);
         }
 
         $sender = $this->resolveSender($invoices);
         if ($sender !== null) {
-            $report->sender = $this->buildFlux10Party($sender);
+            $report->setSender($this->buildFlux10Party($sender));
         }
 
         $issuer = $this->resolveIssuer($invoices);
         if ($issuer !== null) {
-            $report->issuer = $this->buildFlux10Issuer($issuer['party'], $issuer['roleCode']);
+            $report->setIssuer($this->buildFlux10Issuer($issuer['party'], $issuer['roleCode']));
         }
 
         if ($issueDateBounds['start'] !== null && $issueDateBounds['end'] !== null) {
             $period = new Flux10Period();
-            $period->startDate = $issueDateBounds['start'];
-            $period->endDate = $issueDateBounds['end'];
-            $report->period = $period;
+            $period->setStartDate($issueDateBounds['start']);
+            $period->setEndDate($issueDateBounds['end']);
+            $report->setPeriod($period);
         }
 
         foreach ($invoices as $invoice) {
             if ($invoice instanceof Invoice) {
-                $report->invoices[] = $this->buildFlux10Invoice($invoice);
+                $report->addInvoice($this->buildFlux10Invoice($invoice));
             }
         }
 
@@ -264,9 +270,9 @@ class Flux10Writer extends AbstractMultiWriter
     private function buildFlux10Party(Party $party): Flux10Party
     {
         $fluxParty = new Flux10Party();
-        $fluxParty->siren = $this->getPartyId($party);
-        $fluxParty->name = $party->getName() ?? $party->getTradingName();
-        $fluxParty->vatId = $party->getVatNumber();
+        $fluxParty->setSiren($this->getPartyId($party));
+        $fluxParty->setName($party->getName() ?? $party->getTradingName());
+        $fluxParty->setVatId($party->getVatNumber());
 
         return $fluxParty;
     }
@@ -274,10 +280,10 @@ class Flux10Writer extends AbstractMultiWriter
     private function buildFlux10Issuer(Party $party, Flux10IssuerRoleCode $roleCode): Flux10Issuer
     {
         $issuer = new Flux10Issuer();
-        $issuer->siren = $this->getPartyId($party);
-        $issuer->name = $party->getName() ?? $party->getTradingName();
-        $issuer->vatId = $party->getVatNumber();
-        $issuer->roleCode = $roleCode;
+        $issuer->setSiren($this->getPartyId($party));
+        $issuer->setName($party->getName() ?? $party->getTradingName());
+        $issuer->setVatId($party->getVatNumber());
+        $issuer->setRoleCode($roleCode);
 
         return $issuer;
     }
@@ -285,42 +291,42 @@ class Flux10Writer extends AbstractMultiWriter
     private function buildFlux10Invoice(Invoice $invoice): Flux10Invoice
     {
         $fluxInvoice = new Flux10Invoice();
-        $fluxInvoice->invoiceId = $invoice->getNumber();
-        $fluxInvoice->issueDate = $invoice->getIssueDate();
-        $fluxInvoice->typeCode = (string) $invoice->getType();
+        $fluxInvoice->setInvoiceId($invoice->getNumber());
+        $fluxInvoice->setIssueDate($invoice->getIssueDate());
+        $fluxInvoice->setTypeCode((string) $invoice->getType());
 
         $seller = $invoice->getSeller();
         $buyer = $invoice->getBuyer();
         $sellerCountry = $this->getPartyCountry($seller);
         $buyerCountry = $this->getPartyCountry($buyer);
 
-        $fluxInvoice->sellerCountry = $sellerCountry;
-        $fluxInvoice->buyerCountry = $buyerCountry;
+        $fluxInvoice->setSellerCountry($sellerCountry);
+        $fluxInvoice->setBuyerCountry($buyerCountry);
 
         $sellerId = $this->getPartyId($seller);
         $buyerId = $this->getPartyId($buyer);
 
         if ($sellerCountry === 'FR') {
-            $fluxInvoice->sellerId = $sellerId;
+            $fluxInvoice->setSellerId($sellerId);
         } elseif ($sellerCountry !== null && $seller !== null) {
-            $fluxInvoice->sellerVatId = $seller->getVatNumber();
+            $fluxInvoice->setSellerVatId($seller->getVatNumber());
         }
 
         if ($buyerCountry === 'FR') {
-            $fluxInvoice->buyerId = $buyerId;
+            $fluxInvoice->setBuyerId($buyerId);
         } elseif ($buyerCountry !== null && $buyer !== null) {
-            $fluxInvoice->buyerVatId = $buyer->getVatNumber();
+            $fluxInvoice->setBuyerVatId($buyer->getVatNumber());
         }
 
         $totals = $invoice->getTotals();
-        $fluxInvoice->taxExclusiveAmount = $totals->taxExclusiveAmount;
-        $fluxInvoice->taxAmount = $totals->vatAmount;
+        $fluxInvoice->setTaxExclusiveAmount($totals->taxExclusiveAmount);
+        $fluxInvoice->setTaxAmount($totals->vatAmount);
 
         foreach ($totals->vatBreakdown as $item) {
             if (!$item instanceof InvoiceVatBreakdown) {
                 continue;
             }
-            $fluxInvoice->taxBreakdown[] = $this->buildFlux10TaxBreakdown($item);
+            $fluxInvoice->addTaxBreakdownItem($this->buildFlux10TaxBreakdown($item));
         }
 
         return $fluxInvoice;
@@ -329,9 +335,9 @@ class Flux10Writer extends AbstractMultiWriter
     private function buildFlux10TaxBreakdown(InvoiceVatBreakdown $item): Flux10TaxBreakdown
     {
         $fluxItem = new Flux10TaxBreakdown();
-        $fluxItem->rate = $item->rate;
-        $fluxItem->taxableAmount = $item->taxableAmount;
-        $fluxItem->taxAmount = $item->taxAmount;
+        $fluxItem->setRate($item->rate);
+        $fluxItem->setTaxableAmount($item->taxableAmount);
+        $fluxItem->setTaxAmount($item->taxAmount);
 
         return $fluxItem;
     }
