@@ -3,6 +3,9 @@
 namespace Einvoicing\Flux10;
 
 use DateTime;
+use OutOfBoundsException;
+use function array_splice;
+use function count;
 
 class InvoicePayment
 {
@@ -19,10 +22,28 @@ class InvoicePayment
     protected DateTime|string|null $paymentDate = null;
 
     /**
-     * Payment amount.
+     * Payment amount (legacy shortcut: exported as a single `SubTotals`).
      * @var float|string|null
      */
     protected float|string|null $amount = null;
+
+    /**
+     * Related invoice issue date (required by payment.xsd).
+     * @var DateTime|string|null
+     */
+    protected DateTime|string|null $issueDate = null;
+
+    /**
+     * Payment currency code (optional).
+     * @var string|null
+     */
+    protected $currencyCode = null;
+
+    /**
+     * Amounts grouped by VAT rate (exported as `SubTotals`).
+     * @var AmountByRate[]
+     */
+    protected $amountsByRate = [];
 
     /**
      * Get related invoice ID.
@@ -60,6 +81,31 @@ class InvoicePayment
         return $this;
     }
 
+    public function getIssueDate(): DateTime|string|null
+    {
+        return $this->issueDate;
+    }
+
+    /**
+     * @param DateTime|string|null $issueDate
+     */
+    public function setIssueDate(DateTime|string|null $issueDate): self
+    {
+        $this->issueDate = $issueDate;
+        return $this;
+    }
+
+    public function getCurrencyCode(): ?string
+    {
+        return $this->currencyCode;
+    }
+
+    public function setCurrencyCode(?string $currencyCode): self
+    {
+        $this->currencyCode = $currencyCode;
+        return $this;
+    }
+
     /**
      * Get payment amount.
      */
@@ -76,6 +122,39 @@ class InvoicePayment
     public function setAmount(float|string|null $amount): self
     {
         $this->amount = $amount;
+        return $this;
+    }
+
+    /**
+     * @return AmountByRate[]
+     */
+    public function getAmountsByRate(): array
+    {
+        return $this->amountsByRate;
+    }
+
+    public function addAmountByRate(AmountByRate $amountByRate): self
+    {
+        $this->amountsByRate[] = $amountByRate;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeAmountByRate(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->amountsByRate)) {
+            throw new OutOfBoundsException('Could not find amountByRate by index');
+        }
+
+        array_splice($this->amountsByRate, $index, 1);
+        return $this;
+    }
+
+    public function clearAmountsByRate(): self
+    {
+        $this->amountsByRate = [];
         return $this;
     }
 }

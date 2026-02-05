@@ -16,6 +16,12 @@ class Transaction
     protected DateTime|string|null $date = null;
 
     /**
+     * Transactions currency code.
+     * @var string|null
+     */
+    protected $currencyCode = null;
+
+    /**
      * Category code (TLB1, TPS1, TNT1, TMA1).
      * @var string|null
      */
@@ -67,6 +73,17 @@ class Transaction
     public function setDate(DateTime|string|null $date): self
     {
         $this->date = $date;
+        return $this;
+    }
+
+    public function getCurrencyCode(): ?string
+    {
+        return $this->currencyCode;
+    }
+
+    public function setCurrencyCode(?string $currencyCode): self
+    {
+        $this->currencyCode = $currencyCode;
         return $this;
     }
 

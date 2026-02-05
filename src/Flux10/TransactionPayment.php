@@ -16,6 +16,12 @@ class TransactionPayment
     protected DateTime|string|null $paymentDate = null;
 
     /**
+     * Payment currency code (optional).
+     * @var string|null
+     */
+    protected $currencyCode = null;
+
+    /**
      * Amounts grouped by VAT rate.
      * @var AmountByRate[]
      */
@@ -37,6 +43,17 @@ class TransactionPayment
     public function setPaymentDate(DateTime|string|null $paymentDate): self
     {
         $this->paymentDate = $paymentDate;
+        return $this;
+    }
+
+    public function getCurrencyCode(): ?string
+    {
+        return $this->currencyCode;
+    }
+
+    public function setCurrencyCode(?string $currencyCode): self
+    {
+        $this->currencyCode = $currencyCode;
         return $this;
     }
 

@@ -14,15 +14,18 @@ use Einvoicing\Flux10\Report as Flux10Report;
 use Einvoicing\Flux10\TaxBreakdown as Flux10TaxBreakdown;
 use Einvoicing\Flux10\Transaction as Flux10Transaction;
 use Einvoicing\Flux10\TransactionPayment as Flux10TransactionPayment;
+use Einvoicing\Identifier;
 use Einvoicing\Invoice;
 use Einvoicing\Models\VatBreakdown as InvoiceVatBreakdown;
 use Einvoicing\Party;
+use InvalidArgumentException;
 use UXML\UXML;
 
 class Flux10Writer extends AbstractMultiWriter
 {
-    private const ROOT_ELEMENT = 'MultiFlowReport';
+    private const ROOT_ELEMENT = 'Report';
     private const DATE_FORMAT = 'Y-m-d';
+    private const DATE_TIME_FORMAT = 'c';
     private const DEFAULT_TRANSMISSION_TYPE = 'IN';
 
     public function exportAll(array $invoices): string
@@ -45,11 +48,23 @@ class Flux10Writer extends AbstractMultiWriter
     {
         $xml = $this->createRoot();
 
-        $this->addReportHeaderFromReport($xml, $report);
-        $this->addInvoices($xml, $report->getInvoices());
-        $this->addInvoicePayments($xml, $report->getInvoicePayments());
-        $this->addTransactions($xml, $report->getTransactions());
-        $this->addTransactionPayments($xml, $report->getTransactionPayments());
+        $this->addReportDocument($xml, $report);
+
+        $hasTransactions = !empty($report->getInvoices()) || !empty($report->getTransactions());
+        if ($hasTransactions) {
+            $transactionsReport = $xml->add('TransactionsReport');
+            $this->addReportPeriod($transactionsReport, $report);
+            $this->addInvoices($transactionsReport, $report->getInvoices());
+            $this->addTransactions($transactionsReport, $report->getTransactions());
+        }
+
+        $hasPayments = !empty($report->getInvoicePayments()) || !empty($report->getTransactionPayments());
+        if ($hasPayments) {
+            $paymentsReport = $xml->add('PaymentsReport');
+            $this->addReportPeriod($paymentsReport, $report);
+            $this->addInvoicePayments($paymentsReport, $report->getInvoicePayments());
+            $this->addTransactionPayments($paymentsReport, $report->getTransactionPayments());
+        }
 
         return $xml->asXML();
     }
@@ -59,175 +74,258 @@ class Flux10Writer extends AbstractMultiWriter
         return UXML::newInstance(self::ROOT_ELEMENT);
     }
 
-    private function addReportHeaderFromReport(UXML $xml, Flux10Report $report): void
+    private function addReportDocument(UXML $xml, Flux10Report $report): void
     {
-        $this->addStringNode($xml, 'reportId', $report->getReportId());
-        $this->addStringNode($xml, 'reportName', $report->getReportName());
+        $reportDocument = $xml->add('ReportDocument');
+
+        $this->addRequiredStringNode($reportDocument, 'Id', $report->getReportId(), 'ReportDocument/Id');
+        $this->addStringNode($reportDocument, 'Name', $report->getReportName());
+
+        $issueDateTime = $reportDocument->add('IssueDateTime');
+        $issueDateTime->add('DateTimeString', (new DateTime())->format(self::DATE_TIME_FORMAT));
 
         $transmissionType = $report->getTransmissionType();
         if ($transmissionType === '') {
             $transmissionType = self::DEFAULT_TRANSMISSION_TYPE;
         }
-        $this->addStringNode($xml, 'transmissionType', $transmissionType);
-
-        $sender = $report->getSender();
-        if ($sender instanceof Flux10Party) {
-            $this->addPartyNode($xml->add('sender'), $sender);
-        }
+        $reportDocument->add('TypeCode', $transmissionType);
 
         $issuer = $report->getIssuer();
-        if ($issuer instanceof Flux10Issuer) {
-            $issuerNode = $xml->add('issuer');
-            $this->addPartyNode($issuerNode, $issuer);
-            $roleCode = $issuer->getRoleCode()?->value;
-            $this->addStringNode($issuerNode, 'roleCode', $roleCode);
+        if (!$issuer instanceof Flux10Issuer || $issuer->getRoleCode() === null) {
+            throw new InvalidArgumentException('Flux10 report must define an issuer with a role code');
         }
 
-        $period = $report->getPeriod();
-        if ($period instanceof Flux10Period) {
-            $periodNode = $xml->add('period');
-            $this->addDateNode($periodNode, 'startDate', $period->getStartDate());
-            $this->addDateNode($periodNode, 'endDate', $period->getEndDate());
+        $sender = $report->getSender() ?? $issuer;
+        if (!$sender instanceof Flux10Party) {
+            throw new InvalidArgumentException('Flux10 report must define a sender');
         }
+
+        $this->addReportParty($reportDocument->add('Sender'), $sender, $issuer->getRoleCode()->value, 'Sender');
+        $this->addReportParty($reportDocument->add('Issuer'), $issuer, $issuer->getRoleCode()->value, 'Issuer');
+    }
+
+    private function addReportParty(UXML $parent, Flux10Party $party, string $roleCode, string $context): void
+    {
+        $schemeId = $party->getSchemeId() ?? 'UNKNOWN';
+        $id = $party->getSiren();
+        if ($id === null || $id === '') {
+            throw new InvalidArgumentException("Flux10 report {$context} must define an Id value");
+        }
+        $parent->add('Id', $id, ['schemeId' => $schemeId]);
+        $this->addRequiredStringNode($parent, 'Name', $party->getName(), "{$context}/Name");
+        $parent->add('RoleCode', $roleCode);
+    }
+
+    private function addReportPeriod(UXML $parent, Flux10Report $report): void
+    {
+        $period = $report->getPeriod();
+        if (!$period instanceof Flux10Period) {
+            throw new InvalidArgumentException('Flux10 report must define a period when exporting TransactionsReport/PaymentsReport');
+        }
+
+        $reportPeriod = $parent->add('ReportPeriod');
+        $this->addRequiredDateNode($reportPeriod, 'StartDate', $period->getStartDate(), 'ReportPeriod/StartDate');
+        $this->addRequiredDateNode($reportPeriod, 'EndDate', $period->getEndDate(), 'ReportPeriod/EndDate');
     }
 
     private function addInvoices(UXML $xml, array $invoices): void
     {
-        if (empty($invoices)) {
-            return;
-        }
-
-        $parent = $xml->add('invoices');
         foreach ($invoices as $invoice) {
             if (!$invoice instanceof Flux10Invoice) {
                 continue;
             }
 
-            $node = $parent->add('invoice');
-            $this->addStringNode($node, 'invoiceId', $invoice->getInvoiceId());
-            $this->addDateNode($node, 'issueDate', $invoice->getIssueDate());
-            $this->addStringNode($node, 'typeCode', $invoice->getTypeCode());
-            $this->addStringNode($node, 'sellerId', $invoice->getSellerId());
-            $this->addStringNode($node, 'sellerCountry', $invoice->getSellerCountry());
-            $this->addStringNode($node, 'sellerVatId', $invoice->getSellerVatId());
-            $this->addStringNode($node, 'buyerId', $invoice->getBuyerId());
-            $this->addStringNode($node, 'buyerCountry', $invoice->getBuyerCountry());
-            $this->addStringNode($node, 'buyerVatId', $invoice->getBuyerVatId());
-            $this->addAmountNode($node, 'taxExclusiveAmount', $invoice->getTaxExclusiveAmount());
-            $this->addAmountNode($node, 'taxAmount', $invoice->getTaxAmount());
+            $node = $xml->add('Invoice');
+            $this->addRequiredStringNode($node, 'ID', $invoice->getInvoiceId(), 'Invoice/ID');
+            $this->addRequiredDateNode($node, 'IssueDate', $invoice->getIssueDate(), 'Invoice/IssueDate');
+            $this->addRequiredStringNode($node, 'TypeCode', $invoice->getTypeCode(), 'Invoice/TypeCode');
+            $this->addRequiredStringNode($node, 'CurrencyCode', $invoice->getCurrencyCode(), 'Invoice/CurrencyCode');
+
+            $this->addDateNode($node, 'DueDate', $invoice->getDueDate());
+            $this->addStringNode($node, 'TaxDueDateTypeCode', $invoice->getTaxDueDateTypeCode());
+
+            $businessProcess = $node->add('BusinessProcess');
+            $this->addRequiredStringNode($businessProcess, 'ID', $invoice->getBusinessProcessId(), 'Invoice/BusinessProcess/ID');
+            $this->addRequiredStringNode($businessProcess, 'TypeID', $invoice->getBusinessProcessTypeId(), 'Invoice/BusinessProcess/TypeID');
+
+            $seller = $node->add('Seller');
+            $this->addRequiredSchemeValueNode(
+                $seller,
+                'CompanyId',
+                $invoice->getSellerId(),
+                $invoice->getSellerSchemeId(),
+                'Invoice/Seller/CompanyId'
+            );
+            if ($invoice->getSellerCountry() !== null && $invoice->getSellerCountry() !== '') {
+                $seller->add('PostalAddress')->add('CountryId', $invoice->getSellerCountry());
+            }
+
+            $hasBuyer =
+                ($invoice->getBuyerId() !== null && $invoice->getBuyerId() !== '') ||
+                ($invoice->getBuyerVatId() !== null && $invoice->getBuyerVatId() !== '') ||
+                ($invoice->getBuyerCountry() !== null && $invoice->getBuyerCountry() !== '');
+            if ($hasBuyer) {
+                $buyer = $node->add('Buyer');
+                if ($invoice->getBuyerId() !== null && $invoice->getBuyerId() !== '') {
+                    $this->addSchemeValueNode($buyer, 'CompanyId', $invoice->getBuyerId(), $invoice->getBuyerSchemeId());
+                }
+                if ($invoice->getBuyerCountry() !== null && $invoice->getBuyerCountry() !== '') {
+                    $buyer->add('PostalAddress')->add('CountryId', $invoice->getBuyerCountry());
+                }
+            }
+
+            $monetaryTotal = $node->add('MonetaryTotal');
+            $this->addAmountNode($monetaryTotal, 'TaxExclusiveAmount', $invoice->getTaxExclusiveAmount());
+
+            $taxAmount = $this->formatAmount($invoice->getTaxAmount());
+            if ($taxAmount === null) {
+                throw new InvalidArgumentException('Invoice/MonetaryTotal/TaxAmount is required');
+            }
+            $currencyCode = $invoice->getCurrencyCode();
+            if ($currencyCode === null || $currencyCode === '') {
+                throw new InvalidArgumentException('Invoice/CurrencyCode is required to set MonetaryTotal/TaxAmount@CurrencyCode');
+            }
+            $monetaryTotal->add('TaxAmount', $taxAmount, ['CurrencyCode' => $currencyCode]);
 
             $breakdown = $invoice->getTaxBreakdown();
-            if (!empty($breakdown)) {
-                $taxBreakdown = $node->add('taxBreakdown');
-                foreach ($breakdown as $item) {
-                    if (!$item instanceof Flux10TaxBreakdown) {
-                        continue;
-                    }
-                    $this->addTaxBreakdownItem($taxBreakdown, $item);
+            if (empty($breakdown)) {
+                $fallback = new Flux10TaxBreakdown();
+                $fallback->setRate(0);
+                $fallback->setTaxableAmount($invoice->getTaxExclusiveAmount());
+                $fallback->setTaxAmount($invoice->getTaxAmount());
+                $breakdown = [$fallback];
+            }
+
+            foreach ($breakdown as $item) {
+                if (!$item instanceof Flux10TaxBreakdown) {
+                    continue;
                 }
+                $this->addInvoiceTaxSubtotal($node, $item);
             }
         }
     }
 
     private function addInvoicePayments(UXML $xml, array $payments): void
     {
-        if (empty($payments)) {
-            return;
-        }
-
-        $parent = $xml->add('invoicePayments');
         foreach ($payments as $payment) {
             if (!$payment instanceof Flux10InvoicePayment) {
                 continue;
             }
 
-            $node = $parent->add('invoicePayment');
-            $this->addStringNode($node, 'invoiceId', $payment->getInvoiceId());
-            $this->addDateNode($node, 'paymentDate', $payment->getPaymentDate());
-            $this->addAmountNode($node, 'amount', $payment->getAmount());
+            $node = $xml->add('Invoice');
+            $this->addRequiredStringNode($node, 'InvoiceID', $payment->getInvoiceId(), 'PaymentsReport/Invoice/InvoiceID');
+            $this->addRequiredDateNode($node, 'IssueDate', $payment->getIssueDate(), 'PaymentsReport/Invoice/IssueDate');
+
+            $paymentNode = $node->add('Payment');
+            $this->addRequiredDateNode($paymentNode, 'Date', $payment->getPaymentDate(), 'PaymentsReport/Invoice/Payment/Date');
+
+            $subTotals = $payment->getAmountsByRate();
+            if (empty($subTotals)) {
+                $amount = $payment->getAmount();
+                if ($amount !== null && $amount !== '') {
+                    $fallback = new Flux10AmountByRate();
+                    $fallback->setRate(0);
+                    $fallback->setAmount($amount);
+                    $subTotals = [$fallback];
+                }
+            }
+            if (empty($subTotals)) {
+                throw new InvalidArgumentException('PaymentsReport/Invoice/Payment/SubTotals must have at least one item');
+            }
+
+            foreach ($subTotals as $subTotal) {
+                if (!$subTotal instanceof Flux10AmountByRate) {
+                    continue;
+                }
+                $subTotalNode = $paymentNode->add('SubTotals');
+                $this->addRequiredAmountNode($subTotalNode, 'TaxPercent', $subTotal->getRate(), 'PaymentsReport/Invoice/Payment/SubTotals/TaxPercent');
+                $this->addStringNode($subTotalNode, 'CurrencyCode', $payment->getCurrencyCode());
+                $this->addRequiredAmountNode($subTotalNode, 'Amount', $subTotal->getAmount(), 'PaymentsReport/Invoice/Payment/SubTotals/Amount');
+            }
         }
     }
 
     private function addTransactions(UXML $xml, array $transactions): void
     {
-        if (empty($transactions)) {
-            return;
-        }
-
-        $parent = $xml->add('transactions');
         foreach ($transactions as $transaction) {
             if (!$transaction instanceof Flux10Transaction) {
                 continue;
             }
 
-            $node = $parent->add('transaction');
-            $this->addDateNode($node, 'date', $transaction->getDate());
-            $this->addStringNode($node, 'categoryCode', $transaction->getCategoryCode());
-            $this->addAmountNode($node, 'taxExclusiveAmount', $transaction->getTaxExclusiveAmount());
-            $this->addAmountNode($node, 'taxAmount', $transaction->getTaxAmount());
-
-            $breakdown = $transaction->getTaxBreakdown();
-            if (!empty($breakdown)) {
-                $taxBreakdown = $node->add('taxBreakdown');
-                foreach ($breakdown as $item) {
-                    if (!$item instanceof Flux10TaxBreakdown) {
-                        continue;
-                    }
-                    $this->addTaxBreakdownItem($taxBreakdown, $item);
-                }
-            }
+            $node = $xml->add('Transactions');
+            $this->addRequiredDateNode($node, 'Date', $transaction->getDate(), 'Transactions/Date');
+            $this->addRequiredStringNode($node, 'TransactionsCurrency', $transaction->getCurrencyCode(), 'Transactions/TransactionsCurrency');
+            $this->addStringNode($node, 'TaxDueDateTypeCode', $transaction->getTaxDueDateTypeCode());
+            $this->addRequiredStringNode($node, 'CategoryCode', $transaction->getCategoryCode(), 'Transactions/CategoryCode');
+            $this->addRequiredAmountNode($node, 'TaxExclusiveAmount', $transaction->getTaxExclusiveAmount(), 'Transactions/TaxExclusiveAmount');
+            $this->addRequiredAmountNode($node, 'TaxTotal', $transaction->getTaxAmount(), 'Transactions/TaxTotal');
 
             if ($transaction->getTransactionCount() !== null) {
-                $node->add('transactionCount', (string) $transaction->getTransactionCount());
+                $node->add('TransactionsCount', (string) $transaction->getTransactionCount());
             }
 
-            $this->addStringNode($node, 'taxDueDateTypeCode', $transaction->getTaxDueDateTypeCode());
+            $breakdown = $transaction->getTaxBreakdown();
+            if (empty($breakdown)) {
+                $fallback = new Flux10TaxBreakdown();
+                $fallback->setRate(0);
+                $fallback->setTaxableAmount($transaction->getTaxExclusiveAmount());
+                $fallback->setTaxAmount($transaction->getTaxAmount());
+                $breakdown = [$fallback];
+            }
+
+            foreach ($breakdown as $item) {
+                if (!$item instanceof Flux10TaxBreakdown) {
+                    continue;
+                }
+                $this->addTransactionTaxSubtotal($node, $item);
+            }
         }
     }
 
     private function addTransactionPayments(UXML $xml, array $payments): void
     {
-        if (empty($payments)) {
-            return;
-        }
-
-        $parent = $xml->add('transactionPayments');
         foreach ($payments as $payment) {
             if (!$payment instanceof Flux10TransactionPayment) {
                 continue;
             }
 
-            $node = $parent->add('transactionPayment');
-            $this->addDateNode($node, 'paymentDate', $payment->getPaymentDate());
+            $node = $xml->add('Transactions');
+            $paymentNode = $node->add('Payment');
+            $this->addRequiredDateNode($paymentNode, 'Date', $payment->getPaymentDate(), 'PaymentsReport/Transactions/Payment/Date');
 
             $amountsByRate = $payment->getAmountsByRate();
-            if (!empty($amountsByRate)) {
-                $amounts = $node->add('amountsByRate');
-                foreach ($amountsByRate as $amountByRate) {
-                    if (!$amountByRate instanceof Flux10AmountByRate) {
-                        continue;
-                    }
-                    $amountNode = $amounts->add('item');
-                    $this->addAmountNode($amountNode, 'rate', $amountByRate->getRate());
-                    $this->addAmountNode($amountNode, 'amount', $amountByRate->getAmount());
+            if (empty($amountsByRate)) {
+                throw new InvalidArgumentException('PaymentsReport/Transactions/Payment/SubTotals must have at least one item');
+            }
+
+            foreach ($amountsByRate as $amountByRate) {
+                if (!$amountByRate instanceof Flux10AmountByRate) {
+                    continue;
                 }
+                $subTotalNode = $paymentNode->add('SubTotals');
+                $this->addRequiredAmountNode($subTotalNode, 'TaxPercent', $amountByRate->getRate(), 'PaymentsReport/Transactions/Payment/SubTotals/TaxPercent');
+                $this->addStringNode($subTotalNode, 'CurrencyCode', $payment->getCurrencyCode());
+                $this->addRequiredAmountNode($subTotalNode, 'Amount', $amountByRate->getAmount(), 'PaymentsReport/Transactions/Payment/SubTotals/Amount');
             }
         }
     }
 
-    private function addTaxBreakdownItem(UXML $parent, Flux10TaxBreakdown $item): void
+    private function addInvoiceTaxSubtotal(UXML $invoiceNode, Flux10TaxBreakdown $item): void
     {
-        $node = $parent->add('item');
-        $this->addAmountNode($node, 'rate', $item->getRate());
-        $this->addAmountNode($node, 'taxableAmount', $item->getTaxableAmount());
-        $this->addAmountNode($node, 'taxAmount', $item->getTaxAmount());
+        $node = $invoiceNode->add('TaxSubTotal');
+        $this->addRequiredAmountNode($node, 'TaxableAmount', $item->getTaxableAmount(), 'Invoice/TaxSubTotal/TaxableAmount');
+        $this->addRequiredAmountNode($node, 'TaxAmount', $item->getTaxAmount(), 'Invoice/TaxSubTotal/TaxAmount');
+
+        $taxCategory = $node->add('TaxCategory');
+        $this->addRequiredAmountNode($taxCategory, 'Percent', $item->getRate(), 'Invoice/TaxSubTotal/TaxCategory/Percent');
     }
 
-    private function addPartyNode(UXML $node, Flux10Party $party): void
+    private function addTransactionTaxSubtotal(UXML $transactionsNode, Flux10TaxBreakdown $item): void
     {
-        $this->addStringNode($node, 'siren', $party->getSiren());
-        $this->addStringNode($node, 'name', $party->getName());
-        $this->addStringNode($node, 'vatId', $party->getVatId());
+        $node = $transactionsNode->add('TaxSubtotal');
+        $this->addRequiredAmountNode($node, 'TaxPercent', $item->getRate(), 'Transactions/TaxSubtotal/TaxPercent');
+        $this->addRequiredAmountNode($node, 'TaxableAmount', $item->getTaxableAmount(), 'Transactions/TaxSubtotal/TaxableAmount');
+        $this->addRequiredAmountNode($node, 'TaxTotal', $item->getTaxAmount(), 'Transactions/TaxSubtotal/TaxTotal');
     }
 
     private function buildReportFromInvoices(array $invoices): Flux10Report
@@ -270,7 +368,9 @@ class Flux10Writer extends AbstractMultiWriter
     private function buildFlux10Party(Party $party): Flux10Party
     {
         $fluxParty = new Flux10Party();
-        $fluxParty->setSiren($this->getPartyId($party));
+        $identifier = $this->getPartyIdentifier($party);
+        $fluxParty->setSiren($identifier?->getValue());
+        $fluxParty->setSchemeId($identifier?->getScheme());
         $fluxParty->setName($party->getName() ?? $party->getTradingName());
         $fluxParty->setVatId($party->getVatNumber());
 
@@ -280,7 +380,9 @@ class Flux10Writer extends AbstractMultiWriter
     private function buildFlux10Issuer(Party $party, Flux10IssuerRoleCode $roleCode): Flux10Issuer
     {
         $issuer = new Flux10Issuer();
-        $issuer->setSiren($this->getPartyId($party));
+        $identifier = $this->getPartyIdentifier($party);
+        $issuer->setSiren($identifier?->getValue());
+        $issuer->setSchemeId($identifier?->getScheme());
         $issuer->setName($party->getName() ?? $party->getTradingName());
         $issuer->setVatId($party->getVatNumber());
         $issuer->setRoleCode($roleCode);
@@ -294,6 +396,10 @@ class Flux10Writer extends AbstractMultiWriter
         $fluxInvoice->setInvoiceId($invoice->getNumber());
         $fluxInvoice->setIssueDate($invoice->getIssueDate());
         $fluxInvoice->setTypeCode((string) $invoice->getType());
+        $fluxInvoice->setCurrencyCode($invoice->getCurrency());
+        $fluxInvoice->setDueDate($invoice->getDueDate());
+        $fluxInvoice->setBusinessProcessId($invoice->getBusinessProcess() ?? 'UNKNOWN');
+        $fluxInvoice->setBusinessProcessTypeId($invoice->getSpecification() ?? 'UNKNOWN');
 
         $seller = $invoice->getSeller();
         $buyer = $invoice->getBuyer();
@@ -303,20 +409,15 @@ class Flux10Writer extends AbstractMultiWriter
         $fluxInvoice->setSellerCountry($sellerCountry);
         $fluxInvoice->setBuyerCountry($buyerCountry);
 
-        $sellerId = $this->getPartyId($seller);
-        $buyerId = $this->getPartyId($buyer);
+        $sellerIdentifier = $this->getPartyIdentifier($seller);
+        $buyerIdentifier = $this->getPartyIdentifier($buyer);
+        $fluxInvoice->setSellerId($sellerIdentifier?->getValue() ?? ($seller?->getVatNumber()));
+        $fluxInvoice->setSellerSchemeId($sellerIdentifier?->getScheme() ?? ($seller?->getVatNumber() ? 'VAT' : null));
+        $fluxInvoice->setSellerVatId($seller?->getVatNumber());
 
-        if ($sellerCountry === 'FR') {
-            $fluxInvoice->setSellerId($sellerId);
-        } elseif ($sellerCountry !== null && $seller !== null) {
-            $fluxInvoice->setSellerVatId($seller->getVatNumber());
-        }
-
-        if ($buyerCountry === 'FR') {
-            $fluxInvoice->setBuyerId($buyerId);
-        } elseif ($buyerCountry !== null && $buyer !== null) {
-            $fluxInvoice->setBuyerVatId($buyer->getVatNumber());
-        }
+        $fluxInvoice->setBuyerId($buyerIdentifier?->getValue() ?? ($buyer?->getVatNumber()));
+        $fluxInvoice->setBuyerSchemeId($buyerIdentifier?->getScheme() ?? ($buyer?->getVatNumber() ? 'VAT' : null));
+        $fluxInvoice->setBuyerVatId($buyer?->getVatNumber());
 
         $totals = $invoice->getTotals();
         $fluxInvoice->setTaxExclusiveAmount($totals->taxExclusiveAmount);
@@ -403,10 +504,10 @@ class Flux10Writer extends AbstractMultiWriter
         $sellerCountry = $this->getPartyCountry($invoice->getSeller());
         $buyerCountry = $this->getPartyCountry($invoice->getBuyer());
 
-        if ($sellerCountry === 'FR' && $buyerCountry !== 'FR') {
+        if ($sellerCountry === 'FR') {
             return Flux10IssuerRoleCode::SELLER;
         }
-        if ($buyerCountry === 'FR' && $sellerCountry !== 'FR') {
+        if ($buyerCountry === 'FR') {
             return Flux10IssuerRoleCode::BUYER;
         }
 
@@ -457,7 +558,7 @@ class Flux10Writer extends AbstractMultiWriter
         return null;
     }
 
-    private function getPartyId(?Party $party): ?string
+    private function getPartyIdentifier(?Party $party): ?Identifier
     {
         if ($party === null) {
             return null;
@@ -465,20 +566,62 @@ class Flux10Writer extends AbstractMultiWriter
 
         $companyId = $party->getCompanyId();
         if ($companyId !== null) {
-            return $companyId->getValue();
+            return $companyId;
         }
 
         $taxRegistrationId = $party->getTaxRegistrationId();
         if ($taxRegistrationId !== null) {
-            return $taxRegistrationId->getValue();
+            return $taxRegistrationId;
         }
 
         $identifiers = $party->getIdentifiers();
         if (!empty($identifiers)) {
-            return $identifiers[0]->getValue();
+            return $identifiers[0];
         }
 
         return null;
+    }
+
+    private function addRequiredStringNode(UXML $node, string $name, ?string $value, string $context): void
+    {
+        if ($value === null || $value === '') {
+            throw new InvalidArgumentException("Missing required value for {$context}");
+        }
+        $node->add($name, $value);
+    }
+
+    private function addSchemeValueNode(UXML $node, string $name, ?string $value, ?string $schemeId): void
+    {
+        if ($value === null || $value === '') {
+            return;
+        }
+        $node->add($name, $value, ['schemeId' => $schemeId ?? 'UNKNOWN']);
+    }
+
+    private function addRequiredSchemeValueNode(UXML $node, string $name, ?string $value, ?string $schemeId, string $context): void
+    {
+        if ($value === null || $value === '') {
+            throw new InvalidArgumentException("Missing required value for {$context}");
+        }
+        $node->add($name, $value, ['schemeId' => $schemeId ?? 'UNKNOWN']);
+    }
+
+    private function addRequiredDateNode(UXML $node, string $name, $date, string $context): void
+    {
+        $formatted = $this->formatDate($date);
+        if ($formatted === null) {
+            throw new InvalidArgumentException("Missing required date for {$context}");
+        }
+        $node->add($name, $formatted);
+    }
+
+    private function addRequiredAmountNode(UXML $node, string $name, $amount, string $context): void
+    {
+        $formatted = $this->formatAmount($amount);
+        if ($formatted === null) {
+            throw new InvalidArgumentException("Missing required amount for {$context}");
+        }
+        $node->add($name, $formatted);
     }
 
     private function getPartyCountry(?Party $party): ?string

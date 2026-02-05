@@ -11,6 +11,12 @@ class Party
     protected $siren = null;
 
     /**
+     * Identifier scheme (XSD attribute `schemeId`).
+     * @var string|null
+     */
+    protected $schemeId = null;
+
+    /**
      * Party name.
      * @var string|null
      */
@@ -36,6 +42,23 @@ class Party
     public function setSiren(?string $siren): self
     {
         $this->siren = $siren;
+        return $this;
+    }
+
+    /**
+     * Get identifier scheme.
+     */
+    public function getSchemeId(): ?string
+    {
+        return $this->schemeId;
+    }
+
+    /**
+     * Set identifier scheme.
+     */
+    public function setSchemeId(?string $schemeId): self
+    {
+        $this->schemeId = $schemeId;
         return $this;
     }
 
