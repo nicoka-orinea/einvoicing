@@ -75,6 +75,20 @@ final class Flux10WriterTest extends TestCase
         $writer = new Flux10Writer();
         $xml = $writer->export($invoice);
         $this->assertValidAgainstEreportingXsd($xml);
+
+        $dom = new DOMDocument();
+        $dom->preserveWhiteSpace = false;
+        $dom->loadXML($xml);
+
+        $sellerVatNodes = $dom->getElementsByTagName('Seller')->item(0)?->getElementsByTagName('TaxRegistrationId');
+        $this->assertNotNull($sellerVatNodes);
+        $this->assertSame('FR123456789', $sellerVatNodes->item(0)?->textContent);
+        $this->assertSame('VAT', $sellerVatNodes->item(0)?->getAttribute('qualifyingId'));
+
+        $buyerVatNodes = $dom->getElementsByTagName('Buyer')->item(0)?->getElementsByTagName('TaxRegistrationId');
+        $this->assertNotNull($buyerVatNodes);
+        $this->assertSame('DE123456789', $buyerVatNodes->item(0)?->textContent);
+        $this->assertSame('VAT', $buyerVatNodes->item(0)?->getAttribute('qualifyingId'));
     }
 
     public function testCanGenerateXsdValidPaymentsReport(): void
@@ -120,4 +134,3 @@ final class Flux10WriterTest extends TestCase
         $this->assertValidAgainstEreportingXsd($xml);
     }
 }
-

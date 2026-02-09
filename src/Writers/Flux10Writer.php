@@ -156,6 +156,9 @@ class Flux10Writer extends AbstractMultiWriter
                 $invoice->getSellerSchemeId(),
                 'Invoice/Seller/CompanyId'
             );
+            if ($invoice->getSellerVatId() !== null && $invoice->getSellerVatId() !== '') {
+                $seller->add('TaxRegistrationId', $invoice->getSellerVatId(), ['qualifyingId' => 'VAT']);
+            }
             if ($invoice->getSellerCountry() !== null && $invoice->getSellerCountry() !== '') {
                 $seller->add('PostalAddress')->add('CountryId', $invoice->getSellerCountry());
             }
@@ -168,6 +171,9 @@ class Flux10Writer extends AbstractMultiWriter
                 $buyer = $node->add('Buyer');
                 if ($invoice->getBuyerId() !== null && $invoice->getBuyerId() !== '') {
                     $this->addSchemeValueNode($buyer, 'CompanyId', $invoice->getBuyerId(), $invoice->getBuyerSchemeId());
+                }
+                if ($invoice->getBuyerVatId() !== null && $invoice->getBuyerVatId() !== '') {
+                    $buyer->add('TaxRegistrationId', $invoice->getBuyerVatId(), ['qualifyingId' => 'VAT']);
                 }
                 if ($invoice->getBuyerCountry() !== null && $invoice->getBuyerCountry() !== '') {
                     $buyer->add('PostalAddress')->add('CountryId', $invoice->getBuyerCountry());
