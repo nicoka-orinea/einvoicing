@@ -20,6 +20,8 @@ use Einvoicing\Models\VatBreakdown as InvoiceVatBreakdown;
 use Einvoicing\Party;
 use InvalidArgumentException;
 use UXML\UXML;
+use function preg_match;
+use function trim;
 
 class Flux10Writer extends AbstractMultiWriter
 {
@@ -114,6 +116,11 @@ class Flux10Writer extends AbstractMultiWriter
         $parent->add('Id', $id, ['schemeId' => $schemeId]);
         $this->addRequiredStringNode($parent, 'Name', $party->getName(), "{$context}/Name");
         $parent->add('RoleCode', $roleCode);
+
+        $uri = $party->getUriUniversalCommunication();
+        if ($uri !== null && $uri !== '') {
+            $parent->add('URIUniversalCommunication')->add('URIID', $uri);
+        }
     }
 
     private function addReportPeriod(UXML $parent, Flux10Report $report): void
@@ -379,6 +386,7 @@ class Flux10Writer extends AbstractMultiWriter
         $fluxParty->setSchemeId($identifier?->getScheme());
         $fluxParty->setName($party->getName() ?? $party->getTradingName());
         $fluxParty->setVatId($party->getVatNumber());
+        $fluxParty->setUriUniversalCommunication($this->buildUniversalCommunicationUri($party->getElectronicAddress()));
 
         return $fluxParty;
     }
@@ -391,9 +399,33 @@ class Flux10Writer extends AbstractMultiWriter
         $issuer->setSchemeId($identifier?->getScheme());
         $issuer->setName($party->getName() ?? $party->getTradingName());
         $issuer->setVatId($party->getVatNumber());
+        $issuer->setUriUniversalCommunication($this->buildUniversalCommunicationUri($party->getElectronicAddress()));
         $issuer->setRoleCode($roleCode);
 
         return $issuer;
+    }
+
+    private function buildUniversalCommunicationUri(?Identifier $identifier): ?string
+    {
+        if (!$identifier instanceof Identifier) {
+            return null;
+        }
+
+        $value = trim($identifier->getValue());
+        if ($value === '') {
+            return null;
+        }
+
+        if (preg_match('/^[a-zA-Z][a-zA-Z0-9+.-]*:/', $value) === 1) {
+            return $value;
+        }
+
+        $scheme = $identifier->getScheme();
+        if ($scheme !== null && $scheme !== '') {
+            return "iso6523-actorid-upis::{$scheme}:{$value}";
+        }
+
+        return "urn:identifier:{$value}";
     }
 
     private function buildFlux10Invoice(Invoice $invoice): Flux10Invoice

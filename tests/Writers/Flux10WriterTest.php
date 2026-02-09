@@ -53,6 +53,7 @@ final class Flux10WriterTest extends TestCase
     public function testCanGenerateXsdValidTransactionsReportFromInvoice(): void
     {
         $seller = (new InvoiceParty())
+            ->setElectronicAddress(new Identifier('12345678900023', '0225'))
             ->setCompanyId(new Identifier('123456789', '0002'))
             ->setName('Seller SA')
             ->setCountry('FR')
@@ -89,6 +90,14 @@ final class Flux10WriterTest extends TestCase
         $this->assertNotNull($buyerVatNodes);
         $this->assertSame('DE123456789', $buyerVatNodes->item(0)?->textContent);
         $this->assertSame('VAT', $buyerVatNodes->item(0)?->getAttribute('qualifyingId'));
+
+        $senderUriNodes = $dom->getElementsByTagName('Sender')->item(0)?->getElementsByTagName('URIID');
+        $this->assertNotNull($senderUriNodes);
+        $this->assertSame('iso6523-actorid-upis::0225:12345678900023', $senderUriNodes->item(0)?->textContent);
+
+        $issuerUriNodes = $dom->getElementsByTagName('Issuer')->item(0)?->getElementsByTagName('URIID');
+        $this->assertNotNull($issuerUriNodes);
+        $this->assertSame('iso6523-actorid-upis::0225:12345678900023', $issuerUriNodes->item(0)?->textContent);
     }
 
     public function testCanGenerateXsdValidPaymentsReport(): void

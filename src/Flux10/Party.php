@@ -28,6 +28,12 @@ class Party
      */
     protected $vatId = null;
 
+	    /**
+	     * Universal communication URI (XSD ReportDocument/{Sender|Issuer}/URIUniversalCommunication/URIID).
+	     * @var string|null
+	     */
+	    protected $uriUniversalCommunication = null;
+
     /**
      * Get SIREN/SIRET identifier.
      */
@@ -93,6 +99,23 @@ class Party
     public function setVatId(?string $vatId): self
     {
         $this->vatId = $vatId;
+        return $this;
+    }
+
+    /**
+     * Get universal communication URI.
+     */
+    public function getUriUniversalCommunication(): ?string
+    {
+        return $this->uriUniversalCommunication;
+    }
+
+    /**
+     * Set universal communication URI.
+     */
+    public function setUriUniversalCommunication(?string $uriUniversalCommunication): self
+    {
+        $this->uriUniversalCommunication = $uriUniversalCommunication;
         return $this;
     }
 }
