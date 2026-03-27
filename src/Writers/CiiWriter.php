@@ -613,12 +613,16 @@ class CiiWriter extends AbstractWriter
     private function addParty(UXML $parent, Party $party): void
     {
         $companyId = $party->getCompanyId();
+        if ($companyId !== null) {
+            $parent->add("ram:GlobalID", $companyId->getValue(), [
+                "schemeID" => $companyId->getScheme()
+            ]);
+        }
 
-        $parent->add("ram:GlobalID", $companyId->getValue(), [
-            "schemeID" => $companyId->getScheme()
-        ]);
-
-        $parent->add("ram:Name", $party->getName());
+        $name = $party->getName();
+        if ($name !== null) {
+            $parent->add("ram:Name", $name);
+        }
 
         $this->addLegalOrganization($parent, $party);
         $this->addPostalAddress($parent, $party);
@@ -628,17 +632,30 @@ class CiiWriter extends AbstractWriter
 
     private function addLegalOrganization(UXML $parent, Party $party): void
     {
+        $organizationIdentifier = null;
         foreach ($party->getIdentifiers() as $identifier) {
             if ($identifier->getScheme() === '0002') {
-                $org = $parent->add("ram:SpecifiedLegalOrganization");
-                $org->add("ram:ID", $identifier->getValue(), [
-                    "schemeID" => "0002"
-                ]);
-                return;
+                $organizationIdentifier = $identifier;
+                break;
             }
         }
 
-        throw new \Exception("Missing legal organization identifier (0002)");
+        if ($organizationIdentifier === null) {
+            $organizationIdentifier = $party->getCompanyId();
+        }
+
+        if ($organizationIdentifier === null) {
+            return;
+        }
+
+        $attributes = [];
+        $scheme = $organizationIdentifier->getScheme();
+        if ($scheme !== null) {
+            $attributes['schemeID'] = $scheme;
+        }
+
+        $org = $parent->add("ram:SpecifiedLegalOrganization");
+        $org->add("ram:ID", $organizationIdentifier->getValue(), $attributes);
     }
 
     private function addPostalAddress(UXML $parent, Party $party): void
@@ -653,6 +670,9 @@ class CiiWriter extends AbstractWriter
     private function addElectronicAddress(UXML $parent, Party $party): void
     {
         $ea = $party->getElectronicAddress();
+        if ($ea === null) {
+            return;
+        }
 
         $parent->add("ram:URIUniversalCommunication")
             ->add("ram:URIID", $ea->getValue(), [
@@ -662,8 +682,13 @@ class CiiWriter extends AbstractWriter
 
     private function addVatRegistration(UXML $parent, Party $party): void
     {
+        $vatNumber = $party->getVatNumber();
+        if ($vatNumber === null || $vatNumber === '') {
+            return;
+        }
+
         $parent->add("ram:SpecifiedTaxRegistration")
-            ->add("ram:ID", $party->getVatNumber(), [
+            ->add("ram:ID", $vatNumber, [
                 "schemeID" => "VA"
             ]);
     }
