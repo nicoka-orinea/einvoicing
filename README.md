@@ -18,7 +18,7 @@ It aims to be 100% compliant with [EN 16931](https://ec.europa.eu/digital-buildi
 ## Installation
 First of all, make sure your environment meets the following requirements:
 
-- PHP 7.1 or higher
+- PHP 8.1 or higher
 - [SimpleXML extension](https://www.php.net/book.simplexml) for reading and exporting UBL/CII invoices
 
 Then, you should be able to install this library using Composer:
