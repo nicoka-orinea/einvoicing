@@ -74,6 +74,11 @@ class CiiWriter extends AbstractWriter
         $doc->add("ram:ID", $invoice->getNumber());
         $doc->add("ram:TypeCode", $invoice->getType());
 
+        $doc->add("ram:IssueDateTime")
+            ->add("udt:DateTimeString", $invoice->getIssueDate()?->format("Ymd"), [
+                "format" => "102"
+            ]);
+
         foreach ($invoice->getDocumentNotes() as $note) {
             $includedNote = $doc->add("ram:IncludedNote");
             $includedNote->add("ram:Content", $note->getContent());
@@ -81,11 +86,6 @@ class CiiWriter extends AbstractWriter
                 $includedNote->add("ram:SubjectCode", $note->getSubjectCode());
             }
         }
-
-        $doc->add("ram:IssueDateTime")
-            ->add("udt:DateTimeString", $invoice->getIssueDate()?->format("Ymd"), [
-                "format" => "102"
-            ]);
     }
 
     /* ================= LINE ITEMS ================= */
