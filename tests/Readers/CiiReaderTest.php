@@ -143,9 +143,11 @@ XML;
         <ram:ID>INV-ADV</ram:ID>
         <ram:IncludedNote>
             <ram:Content>General note 1</ram:Content>
+            <ram:SubjectCode>PMD</ram:SubjectCode>
         </ram:IncludedNote>
         <ram:IncludedNote>
             <ram:Content>General note 2</ram:Content>
+            <ram:SubjectCode>PMT</ram:SubjectCode>
         </ram:IncludedNote>
     </rsm:ExchangedDocument>
     <rsm:SupplyChainTradeTransaction>
@@ -234,6 +236,8 @@ XML;
         $invoice = $reader->import($xml);
 
         $this->assertEquals(['General note 1', 'General note 2'], $invoice->getNotes());
+        $this->assertSame('PMD', $invoice->getDocumentNotes()[0]->getSubjectCode());
+        $this->assertSame('PMT', $invoice->getDocumentNotes()[1]->getSubjectCode());
         $this->assertEquals('SO-123', $invoice->getSalesOrderReference());
         $this->assertEquals('2026-01-14', $invoice->getTaxPointDate()->format('Y-m-d'));
 

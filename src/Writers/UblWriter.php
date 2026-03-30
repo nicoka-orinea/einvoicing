@@ -73,8 +73,12 @@ class UblWriter extends AbstractWriter {
         $xml->add($typeCodeName, (string) $invoice->getType());
 
         // BT-22: Notes
-        foreach ($invoice->getNotes() as $note) {
-            $xml->add('cbc:Note', $note);
+        foreach ($invoice->getDocumentNotes() as $note) {
+            $value = $note->getContent();
+            if ($note->getSubjectCode() !== null) {
+                $value = '#' . $note->getSubjectCode() . '#' . $value;
+            }
+            $xml->add('cbc:Note', $value);
         }
 
         // BT-7: Tax point date

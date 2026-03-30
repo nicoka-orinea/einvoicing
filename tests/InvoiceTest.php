@@ -4,6 +4,7 @@ namespace Tests;
 use Einvoicing\AllowanceOrCharge;
 use Einvoicing\Invoice;
 use Einvoicing\InvoiceLine;
+use Einvoicing\Models\DocumentNote;
 use Einvoicing\Presets\Peppol;
 use InvalidArgumentException;
 use OutOfBoundsException;
@@ -36,6 +37,20 @@ final class InvoiceTest extends TestCase {
         $this->assertSame($note, $this->invoice->addNote($note)->getNotes()[0]);
         $this->invoice->removeNote(0);
         $this->assertEmpty($this->invoice->getNotes());
+    }
+
+    public function testCanReadAndWriteDocumentNotesWithSubjectCode(): void {
+        $this->invoice
+            ->addNote('Late payment penalties', 'PMD')
+            ->addNote(new DocumentNote('Recovery fees', 'PMT'));
+
+        $notes = $this->invoice->getDocumentNotes();
+        $this->assertCount(2, $notes);
+        $this->assertSame('Late payment penalties', $notes[0]->getContent());
+        $this->assertSame('PMD', $notes[0]->getSubjectCode());
+        $this->assertSame('Recovery fees', $notes[1]->getContent());
+        $this->assertSame('PMT', $notes[1]->getSubjectCode());
+        $this->assertSame(['Late payment penalties', 'Recovery fees'], $this->invoice->getNotes());
     }
 
     public function testCanRemoveNotes(): void {

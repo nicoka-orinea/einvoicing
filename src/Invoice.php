@@ -2,6 +2,7 @@
 namespace Einvoicing;
 
 use DateTime;
+use Einvoicing\Models\DocumentNote;
 use Einvoicing\Models\InvoiceTotals;
 use Einvoicing\Payments\Payment;
 use Einvoicing\Presets\AbstractPreset;
@@ -518,20 +519,34 @@ class Invoice {
 
     /**
      * Get invoice notes
-     * @return string[] Invoice notes
+     * @return string[] Invoice notes contents
      */
     public function getNotes(): array {
+        return array_map(static function(DocumentNote $note) {
+            return $note->getContent();
+        }, $this->notes);
+    }
+
+
+    /**
+     * Get invoice notes with metadata
+     * @return DocumentNote[] Invoice notes
+     */
+    public function getDocumentNotes(): array {
         return $this->notes;
     }
 
 
     /**
      * Add invoice note
-     * @param  string $note Invoice note
-     * @return self         Invoice instance
+     * @param  string|DocumentNote $note Invoice note
+     * @param  string|null         $subjectCode Invoice note subject code
+     * @return self                            Invoice instance
      */
-    public function addNote(string $note): self {
-        $this->notes[] = $note;
+    public function addNote(string|DocumentNote $note, ?string $subjectCode=null): self {
+        $this->notes[] = $note instanceof DocumentNote ?
+            $note :
+            new DocumentNote($note, $subjectCode);
         return $this;
     }
 
@@ -569,7 +584,7 @@ class Invoice {
      */
     public function getNote(): ?string {
         trigger_error('Invoice::getNote() is deprecated and will be removed in the next version of josemmo/einvoicing', E_USER_DEPRECATED);
-        return $this->notes[0] ?? null;
+        return $this->notes[0]?->getContent();
     }
 
 
@@ -582,7 +597,7 @@ class Invoice {
      */
     public function setNote(?string $note): self {
         trigger_error('Invoice::setNote() is deprecated and will be removed in the next version of josemmo/einvoicing', E_USER_DEPRECATED);
-        $this->notes = ($note === null) ? [] : [$note];
+        $this->notes = ($note === null) ? [] : [new DocumentNote($note)];
         return $this;
     }
 

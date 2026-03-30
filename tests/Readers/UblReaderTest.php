@@ -62,6 +62,25 @@ final class UblReaderTest extends TestCase {
         $this->assertEquals('This is a sample string', $invoice->getAttachments()[0]->getContents());
     }
 
+    public function testCanReadInvoiceNoteSubjectCode(): void {
+        $invoice = $this->reader->import(
+            '<Invoice xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+                xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2">
+                <cbc:CustomizationID>urn:cen.eu:en16931:2017</cbc:CustomizationID>
+                <cbc:ProfileID>urn:fdc:peppol.eu:2017:poacc:billing:01:1.0</cbc:ProfileID>
+                <cbc:ID>INV-001</cbc:ID>
+                <cbc:IssueDate>2026-03-30</cbc:IssueDate>
+                <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+                <cbc:Note>#PMD#Late payment penalties</cbc:Note>
+                <cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>
+             </Invoice>'
+        );
+
+        $this->assertSame(['Late payment penalties'], $invoice->getNotes());
+        $this->assertSame('PMD', $invoice->getDocumentNotes()[0]->getSubjectCode());
+    }
+
     public function testCannotReadInvoiceFromInvalidXml(): void {
         $this->expectException(InvalidArgumentException::class);
         $this->reader->import(
