@@ -177,4 +177,13 @@ final class UblWriterTest extends TestCase {
         }, $xml->getAll('cac:InvoiceLine/cbc:ID'));
         $this->assertEquals(['2', '1', 'AnotherCustomId', '3'], $actualLineIds);
     }
+
+    public function testCanWriteDocumentNoteSubjectCode(): void {
+        $invoice = $this->getSampleInvoice();
+        $invoice->addNote('Late payment penalties', 'PMD');
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        $this->assertSame('#PMD#Late payment penalties', $xml->get('cbc:Note')->asText());
+    }
 }

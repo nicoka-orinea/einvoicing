@@ -67,8 +67,11 @@ class CiiReader extends AbstractReader
             }
 
             // BT-22: Notes
-            foreach ($exchangedDoc->getAll("ram:IncludedNote/ram:Content") as $noteNode) {
-                $invoice->addNote($noteNode->asText());
+            foreach ($exchangedDoc->getAll("ram:IncludedNote") as $noteNode) {
+                $invoice->addNote(
+                    $noteNode->get("ram:Content")?->asText() ?? '',
+                    $noteNode->get("ram:SubjectCode")?->asText()
+                );
             }
         }
 
@@ -131,25 +134,26 @@ class CiiReader extends AbstractReader
                 }
 
                 $paymentMeans = $settlement->get("ram:SpecifiedTradeSettlementPaymentMeans");
-                $paymentMethodType = $paymentMeans->get("ram:TypeCode");
-                $paymentMethod = $paymentMeans->get("ram:Information");
-                $finAccount = $paymentMeans->get("ram:PayeePartyCreditorFinancialAccount");
-                $iban = $finAccount->get("ram:IBANID");
-                $accountName = $finAccount->get("ram:AccountName");
+                if ($paymentMeans !== null) {
+                    $paymentMethodType = $paymentMeans->get("ram:TypeCode");
+                    $paymentMethod = $paymentMeans->get("ram:Information");
+                    $finAccount = $paymentMeans->get("ram:PayeePartyCreditorFinancialAccount");
+                    $iban = $finAccount?->get("ram:IBANID");
+                    $accountName = $finAccount?->get("ram:AccountName");
+                    $bank = $paymentMeans->get("ram:PayeeSpecifiedCreditorFinancialInstitution")?->get("ram:BICID");
 
-                $bank = $paymentMeans->get("ram:PayeeSpecifiedCreditorFinancialInstitution")->get("ram:BICID");
-
-                $invoice->addPayment((new Payment())
-                    ->setId($paymentRef->asText())
-                    ->setMeansCode($paymentMethodType->asText())
-                    ->setMeansText($paymentMethod->asText())
-                    ->addTransfer(
-                        (new Transfer())
-                            ->setAccountId($iban->asText())
-                            ->setAccountName($accountName->asText())
-                            ->setProvider($bank->asText())
-                    )
-                );
+                    $invoice->addPayment((new Payment())
+                        ->setId($paymentRef?->asText())
+                        ->setMeansCode($paymentMethodType?->asText())
+                        ->setMeansText($paymentMethod?->asText())
+                        ->addTransfer(
+                            (new Transfer())
+                                ->setAccountId($iban?->asText())
+                                ->setAccountName($accountName?->asText())
+                                ->setProvider($bank?->asText())
+                        )
+                    );
+                }
                 // BT-6: VAT accounting currency code
                 $vatCurrencyNode = $settlement->get("ram:TaxCurrencyCode");
                 if ($vatCurrencyNode !== null) {
