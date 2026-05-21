@@ -253,6 +253,7 @@ class CiiWriter extends AbstractWriter
     {
         $settlement = $parent->add("ram:ApplicableHeaderTradeSettlement");
         $settlement->add("ram:InvoiceCurrencyCode", $invoice->getCurrency());
+        $this->addPaymentMeans($settlement, $invoice);
 
         $totals = $invoice->getTotals();
 
@@ -569,11 +570,65 @@ class CiiWriter extends AbstractWriter
 
     private function addPaymentTerms(UXML $parent, Invoice $invoice): void
     {
-        $parent->add("ram:SpecifiedTradePaymentTerms")
-            ->add("ram:DueDateDateTime")
-            ->add("udt:DateTimeString", $invoice->getIssueDate()?->format("Ymd"), [
-                "format" => "102"
-            ]);
+        $paymentTerms = $invoice->getPaymentTerms();
+        $dueDate = $invoice->getDueDate();
+
+        if ($paymentTerms === null && $dueDate === null) {
+            return;
+        }
+
+        $terms = $parent->add("ram:SpecifiedTradePaymentTerms");
+        if ($paymentTerms !== null) {
+            $terms->add("ram:Description", $paymentTerms);
+        }
+        if ($dueDate !== null) {
+            $terms->add("ram:DueDateDateTime")
+                ->add("udt:DateTimeString", $dueDate->format("Ymd"), [
+                    "format" => "102"
+                ]);
+        }
+    }
+
+    private function addPaymentMeans(UXML $parent, Invoice $invoice): void
+    {
+        foreach ($invoice->getPayments() as $payment) {
+            $meansCode = $payment->getMeansCode();
+            $meansText = $payment->getMeansText();
+            $transfers = $payment->getTransfers();
+
+            if ($meansCode === null && $meansText === null && empty($transfers)) {
+                continue;
+            }
+
+            $xml = $parent->add("ram:SpecifiedTradeSettlementPaymentMeans");
+            if ($meansCode !== null) {
+                $xml->add("ram:TypeCode", $meansCode);
+            }
+            if ($meansText !== null) {
+                $xml->add("ram:Information", $meansText);
+            }
+
+            foreach ($transfers as $transfer) {
+                $accountId = $transfer->getAccountId();
+                $accountName = $transfer->getAccountName();
+                $provider = $transfer->getProvider();
+
+                if ($accountId !== null || $accountName !== null) {
+                    $account = $xml->add("ram:PayeePartyCreditorFinancialAccount");
+                    if ($accountId !== null) {
+                        $account->add("ram:IBANID", $accountId);
+                    }
+                    if ($accountName !== null) {
+                        $account->add("ram:AccountName", $accountName);
+                    }
+                }
+
+                if ($provider !== null) {
+                    $xml->add("ram:PayeeSpecifiedCreditorFinancialInstitution")
+                        ->add("ram:BICID", $provider);
+                }
+            }
+        }
     }
 
     private function addMonetarySummation(UXML $parent, Invoice $invoice): void
