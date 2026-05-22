@@ -7,6 +7,7 @@ namespace Einvoicing\Cdar\Enums;
 enum ProcessConditionCode: int
 {
     case SUBMITTED = 200;
+    case EMITTED_BY_PLATFORM = 201;
     case RECEIVED = 202;
     case MADE_AVAILABLE = 203;
     case TAKEN_IN_CHARGE = 204;
@@ -24,6 +25,7 @@ enum ProcessConditionCode: int
     {
         return match ($this) {
             self::SUBMITTED => 'Submitted',
+            self::EMITTED_BY_PLATFORM => 'Emitted by platform',
             self::RECEIVED => 'Received',
             self::MADE_AVAILABLE => 'Made available',
             self::TAKEN_IN_CHARGE => 'Taken in charge',
@@ -43,6 +45,7 @@ enum ProcessConditionCode: int
     {
         return match ($this) {
             self::SUBMITTED => 'Deposee',
+            self::EMITTED_BY_PLATFORM => 'Emise_par_la_plateforme',
             self::RECEIVED => 'Recue',
             self::MADE_AVAILABLE => 'Mise_a_disposition',
             self::TAKEN_IN_CHARGE => 'Prise_en_charge',
@@ -62,6 +65,7 @@ enum ProcessConditionCode: int
     {
         return match ($this) {
             self::SUBMITTED => StatusCode::SUBMITTED,
+            self::EMITTED_BY_PLATFORM => StatusCode::SUBMITTED,
             self::RECEIVED => StatusCode::RECEIVED,
             self::MADE_AVAILABLE => StatusCode::MADE_AVAILABLE,
             self::TAKEN_IN_CHARGE => StatusCode::TAKEN_IN_CHARGE,
