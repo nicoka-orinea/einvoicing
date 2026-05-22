@@ -34,6 +34,10 @@ class CiiReader extends AbstractReader
         $udt = CiiWriter::NS_UDT;
 
         // BT-24: Specification identifier
+        $businessProcessNode = $xml->get("rsm:ExchangedDocumentContext/ram:BusinessProcessSpecifiedDocumentContextParameter/ram:ID");
+        if ($businessProcessNode !== null) {
+            $invoice->setBusinessProcess($businessProcessNode->asText());
+        }
         $specificationNode = $xml->get("rsm:ExchangedDocumentContext/ram:GuidelineSpecifiedDocumentContextParameter/ram:ID");
         if ($specificationNode !== null) {
             $specification = $specificationNode->asText();

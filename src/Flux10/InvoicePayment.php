@@ -81,6 +81,9 @@ class InvoicePayment
         return $this;
     }
 
+    /**
+     * Get related invoice issue date.
+     */
     public function getIssueDate(): DateTime|string|null
     {
         return $this->issueDate;
@@ -95,11 +98,17 @@ class InvoicePayment
         return $this;
     }
 
+    /**
+     * Get payment currency code.
+     */
     public function getCurrencyCode(): ?string
     {
         return $this->currencyCode;
     }
 
+    /**
+     * Set payment currency code.
+     */
     public function setCurrencyCode(?string $currencyCode): self
     {
         $this->currencyCode = $currencyCode;
@@ -133,6 +142,9 @@ class InvoicePayment
         return $this->amountsByRate;
     }
 
+    /**
+     * Add a subtotal amount grouped by rate.
+     */
     public function addAmountByRate(AmountByRate $amountByRate): self
     {
         $this->amountsByRate[] = $amountByRate;
@@ -152,6 +164,9 @@ class InvoicePayment
         return $this;
     }
 
+    /**
+     * Clear subtotal amounts grouped by rate.
+     */
     public function clearAmountsByRate(): self
     {
         $this->amountsByRate = [];

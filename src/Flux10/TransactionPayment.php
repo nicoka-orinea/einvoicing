@@ -46,11 +46,17 @@ class TransactionPayment
         return $this;
     }
 
+    /**
+     * Get payment currency code.
+     */
     public function getCurrencyCode(): ?string
     {
         return $this->currencyCode;
     }
 
+    /**
+     * Set payment currency code.
+     */
     public function setCurrencyCode(?string $currencyCode): self
     {
         $this->currencyCode = $currencyCode;

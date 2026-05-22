@@ -2,6 +2,7 @@
 To switch between [`Invoice`](../reference/invoice.md) instances and UBL/CII documents, this library provides a set of
 readers and writers for importing and exporting invoices, respectively.
 For example, if you want to export an invoice to UBL, you'll have to use the [`UblWriter`](../reference/ubl-writer.md).
+If you want to export the same invoice as UN/CEFACT CII, use [`CiiWriter`](../reference/cii-writer.md) instead.
 
 ## Exporting invoices
 Once you have a working invoice instance, create a writer to export it to a document. For example:
@@ -11,6 +12,15 @@ use Einvoicing\Writers\UblWriter;
 $writer = new UblWriter();
 $document = $writer->export($inv);
 file_put_contents(__DIR__ . "/example.xml", $document);
+```
+
+The same pattern applies to CII:
+```php
+use Einvoicing\Writers\CiiWriter;
+
+$writer = new CiiWriter();
+$document = $writer->export($inv);
+file_put_contents(__DIR__ . "/example-cii.xml", $document);
 ```
 
 ## Importing documents
@@ -25,6 +35,14 @@ try {
 } catch (\InvalidArgumentException $e) {
     // Failed to parse XML document
 }
+```
+
+For CII documents, switch to `CiiReader`:
+```php
+use Einvoicing\Readers\CiiReader;
+
+$reader = new CiiReader();
+$inv = $reader->import($document);
 ```
 
 If the document you're importing has a custom CIUS/extension not supported by this library, you need to register the
@@ -64,3 +82,7 @@ exception when the invoice is not valid.
 
     Unless you explicitly ask the invoice to be validated, you cannot be sure if it complies with the relevant
     specifications.
+
+!!! note
+    Some integration tests in this repository validate generated UBL files against the public EU validator service.
+    When that external service is unavailable, those tests are skipped instead of failing locally.

@@ -39,13 +39,15 @@ $exchanged = $cdar->getExchangedDocument();
 $ack = $cdar->getAcknowledgementDocument();
 ```
 
-For example, you can inspect the process condition and status codes:
+For example, you can inspect the referenced document and all embedded lifecycle events:
 ```php
 $reference = $ack?->getReference();
+$statuses = $reference?->getSpecifiedDocumentStatuses() ?? [];
 
-$processConditionCode = $reference?->getProcessConditionCode();
+$firstStatus = $statuses[0] ?? null;
+$processConditionCode = $firstStatus?->getProcessConditionCode();
+$processLabel = $firstStatus?->getProcessCondition();
 $statusCode = $reference?->getStatusCode();
-$processLabel = $reference?->getProcessCondition(); // English label if known
 ```
 
 If you need the official CDAR XML label, use the mapping helper:
@@ -58,5 +60,8 @@ $definition = $processConditionCode === null
 
 $xmlLabel = $definition?->getXmlLabel();
 ```
+
+The reader also accepts characteristic payloads written as `Description`/`Value` and the legacy aliases
+`Name`/`ValueText`, so you can work with a broader set of incoming CDAR files.
 
 You are now ready to handle the CDAR status update in your application.

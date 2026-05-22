@@ -20,7 +20,8 @@ class ReferenceReferencedDocument
     private ?string $processConditionCode = null;
     private ?string $processCondition = null;
     private ?TradeParty $issuerTradeParty = null;
-    private ?SpecifiedDocumentStatus $specifiedDocumentStatus = null;
+    /** @var SpecifiedDocumentStatus[] */
+    private array $specifiedDocumentStatuses = [];
 
     /**
      * Get the referenced invoice identifier.
@@ -220,7 +221,7 @@ class ReferenceReferencedDocument
      */
     public function getSpecifiedDocumentStatus(): ?SpecifiedDocumentStatus
     {
-        return $this->specifiedDocumentStatus;
+        return $this->specifiedDocumentStatuses[0] ?? null;
     }
 
     /**
@@ -229,7 +230,36 @@ class ReferenceReferencedDocument
      */
     public function setSpecifiedDocumentStatus(?SpecifiedDocumentStatus $specifiedDocumentStatus): self
     {
-        $this->specifiedDocumentStatus = $specifiedDocumentStatus;
+        $this->specifiedDocumentStatuses = $specifiedDocumentStatus === null ? [] : [$specifiedDocumentStatus];
+        return $this;
+    }
+
+    /**
+     * @return SpecifiedDocumentStatus[]
+     * Business meaning: all detailed lifecycle events carried by the CDAR.
+     */
+    public function getSpecifiedDocumentStatuses(): array
+    {
+        return $this->specifiedDocumentStatuses;
+    }
+
+    /**
+     * @param SpecifiedDocumentStatus[] $specifiedDocumentStatuses
+     * Business meaning: all detailed lifecycle events carried by the CDAR.
+     */
+    public function setSpecifiedDocumentStatuses(array $specifiedDocumentStatuses): self
+    {
+        $this->specifiedDocumentStatuses = $specifiedDocumentStatuses;
+        return $this;
+    }
+
+    /**
+     * Add one detailed lifecycle event.
+     * Business meaning: append a status block to the referenced document.
+     */
+    public function addSpecifiedDocumentStatus(SpecifiedDocumentStatus $specifiedDocumentStatus): self
+    {
+        $this->specifiedDocumentStatuses[] = $specifiedDocumentStatus;
         return $this;
     }
 
@@ -239,9 +269,14 @@ class ReferenceReferencedDocument
      */
     public function applyProcessCondition(ProcessConditionCode $processConditionCode): self
     {
+        $status = (new SpecifiedDocumentStatus())
+            ->setProcessConditionCode((string) $processConditionCode->value)
+            ->setProcessCondition($processConditionCode->xmlLabel());
+
         return $this
             ->setProcessConditionCode($processConditionCode)
-            ->setProcessCondition($processConditionCode->label())
-            ->setStatusCode($processConditionCode->statusCode());
+            ->setProcessCondition($processConditionCode->xmlLabel())
+            ->setStatusCode($processConditionCode->statusCode())
+            ->setSpecifiedDocumentStatus($status);
     }
 }

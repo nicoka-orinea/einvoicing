@@ -1,7 +1,14 @@
 <?php
 namespace Tests\Readers;
 
+use DateTime;
+use Einvoicing\AllowanceOrCharge;
+use Einvoicing\Identifier;
 use Einvoicing\Invoice;
+use Einvoicing\InvoiceLine;
+use Einvoicing\Party;
+use Einvoicing\Payments\Payment;
+use Einvoicing\Payments\Transfer;
 use Einvoicing\Readers\CiiReader;
 use Einvoicing\Writers\CiiWriter;
 use PHPUnit\Framework\TestCase;
@@ -363,5 +370,44 @@ XML;
         $this->assertEquals(9.0, $totals->chargesAmount);
         $this->assertEquals(99.0, $totals->taxExclusiveAmount);
         $this->assertEquals(19.80, $totals->vatAmount);
+    }
+
+    public function testCanRoundTripWrittenCiiBusinessFields(): void {
+        $invoice = new Invoice();
+        $invoice->setSpecification('urn:test:cii:profile')
+            ->setBusinessProcess('urn:test:process')
+            ->setNumber('INV-RT')
+            ->setIssueDate(new DateTime('2026-03-30'))
+            ->setDueDate(new DateTime('2026-04-30'))
+            ->setBuyerReference('BR-RT')
+            ->setPurchaseOrderReference('PO-RT')
+            ->setSalesOrderReference('SO-RT')
+            ->setContractReference('CT-RT')
+            ->setVatCurrency('EUR')
+            ->setBuyerAccountingReference('ACC-RT')
+            ->setPaymentTerms('30 days')
+            ->setPaidAmount(5)
+            ->setRoundingAmount(0.02)
+            ->setSeller((new Party())->addIdentifier(new Identifier('SELLER-LEGAL', '0002'))->setElectronicAddress(new Identifier('seller@example.test', 'EM'))->setCompanyId(new Identifier('SELLER-001', '0002'))->setName('Seller')->setAddress(['Seller 1', 'Seller 2'])->setPostalCode('75001')->setCity('Paris')->setCountry('FR')->setVatNumber('FR123'))
+            ->setBuyer((new Party())->addIdentifier(new Identifier('BUYER-LEGAL', '0002'))->setElectronicAddress(new Identifier('buyer@example.test', 'EM'))->setCompanyId(new Identifier('BUYER-001', '0002'))->setName('Buyer')->setAddress(['Buyer 1', 'Buyer 2'])->setPostalCode('69001')->setCity('Lyon')->setCountry('FR')->setVatNumber('FR456'))
+            ->addAllowance((new AllowanceOrCharge())->setAmount(10)->setVatCategory('S')->setVatRate(20))
+            ->addCharge((new AllowanceOrCharge())->setAmount(5)->setVatCategory('S')->setVatRate(20))
+            ->addPayment((new Payment())->setId('PAY-RT')->setMeansCode('30')->setMeansText('Transfer')->addTransfer((new Transfer())->setAccountId('FR761234')->setAccountName('Main')->setProvider('AGRIFRPP')))
+            ->addLine((new InvoiceLine())->setId('1')->setName('Line')->setDescription('Desc')->setSellerIdentifier('SELL-1')->setBuyerIdentifier('BUY-1')->setStandardIdentifier(new Identifier('1234567890123', '0160'))->setOriginCountry('FR')->setOrderLineReference('OL-RT')->setBuyerAccountingReference('LINE-ACC')->setPrice(100, 2)->setQuantity(2)->setBaseQuantity(2)->setVatRate(20)->setUnit('C62')->setNote('Line note'));
+
+        $roundTrip = (new CiiReader())->import((new CiiWriter())->export($invoice));
+
+        $this->assertSame('urn:test:process', $roundTrip->getBusinessProcess());
+        $this->assertSame('urn:test:cii:profile', $roundTrip->getSpecification());
+        $this->assertSame('BR-RT', $roundTrip->getBuyerReference());
+        $this->assertSame('PO-RT', $roundTrip->getPurchaseOrderReference());
+        $this->assertSame('SO-RT', $roundTrip->getSalesOrderReference());
+        $this->assertSame('CT-RT', $roundTrip->getContractReference());
+        $this->assertSame('ACC-RT', $roundTrip->getBuyerAccountingReference());
+        $this->assertSame(5.0, $roundTrip->getPaidAmount());
+        $this->assertSame(0.02, $roundTrip->getRoundingAmount());
+        $this->assertSame(2.0, $roundTrip->getLines()[0]->getBaseQuantity());
+        $this->assertSame('OL-RT', $roundTrip->getLines()[0]->getOrderLineReference());
+        $this->assertSame('LINE-ACC', $roundTrip->getLines()[0]->getBuyerAccountingReference());
     }
 }

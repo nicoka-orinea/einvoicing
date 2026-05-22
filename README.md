@@ -101,6 +101,6 @@ These are the expected features for the library and how's it going so far:
 - [x] Compatibility with the most used [CIUS and extensions](https://ec.europa.eu/digital-building-blocks/wikis/display/EINVCOMMUNITY/Registry+of+CIUS+%28Core+Invoice+Usage+Specifications%29+and+Extensions)
 - [x] Export invoices to UBL documents
 - [x] Import invoices from UBL documents
-- [ ] Export invoices to CII documents
-- [ ] Import invoices from CII documents
+- [x] Export invoices to CII documents
+- [x] Import invoices from CII documents
 - [x] Proper documentation

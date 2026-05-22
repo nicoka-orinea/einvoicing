@@ -4,7 +4,7 @@ CDAR messages are used to publish invoice lifecycle updates. This guide shows ho
 
 In this guide you'll:
 - Create a minimal CDAR message.
-- Apply a process condition code.
+- Add one or more lifecycle events.
 - Export the XML with the CDAR writer.
 
 ## Step 1: Create the CDAR container
@@ -30,19 +30,34 @@ $cdar->setExchangedDocument($exchanged);
 ```
 
 ## Step 3: Add the acknowledgement document
-The acknowledgement document carries the status update for the referenced invoice:
+The acknowledgement document carries the status update for the referenced invoice.
+Each lifecycle event is represented by a `SpecifiedDocumentStatus` node:
 ```php
 use DateTime;
 use Einvoicing\Cdar\AcknowledgementDocument;
 use Einvoicing\Cdar\ReferenceReferencedDocument;
-use Einvoicing\Cdar\Enums\ProcessConditionCode;
+use Einvoicing\Cdar\SpecifiedDocumentCharacteristic;
+use Einvoicing\Cdar\SpecifiedDocumentStatus;
 
 $reference = new ReferenceReferencedDocument();
 $reference->setIssuerAssignedId('F202500003')
     ->setTypeCode('380')
     ->setReceiptDateTime(new DateTime('2025-07-01 15:10:00'))
-    ->setFormattedIssueDateTime(new DateTime('2025-07-01'))
-    ->applyProcessCondition(ProcessConditionCode::PAID);
+    ->setFormattedIssueDateTime(new DateTime('2025-07-01'));
+
+$paid = (new SpecifiedDocumentStatus())
+    ->setReferenceDateTime(new DateTime('2025-08-02'))
+    ->setProcessConditionCode('212')
+    ->setProcessCondition('Encaissee')
+    ->addCharacteristic(
+        (new SpecifiedDocumentCharacteristic())
+            ->setId('BT-20')
+            ->setDescription('Payment terms')
+            ->setValueChangedIndicator(true)
+            ->setValue('Paid by transfer')
+    );
+
+$reference->addSpecifiedDocumentStatus($paid);
 
 $ack = new AcknowledgementDocument();
 $ack->setMultipleReferencesIndicator(false)
@@ -63,4 +78,5 @@ $document = $writer->export($cdar);
 file_put_contents(__DIR__ . "/cdar.xml", $document);
 ```
 
-The writer will output the correct CDAR label for the process condition code.
+The writer preserves each `SpecifiedDocumentStatus` block in order, which is useful when a CDAR carries several
+events for the same invoice.

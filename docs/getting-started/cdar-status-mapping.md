@@ -41,7 +41,8 @@ $reference = new ReferenceReferencedDocument();
 $reference->applyProcessCondition($condition);
 ```
 
-When exporting the CDAR XML, the writer will emit the correct CDAR label for the process condition code.
+This convenience method creates a first `SpecifiedDocumentStatus` entry with the mapped XML label. If you need to
+attach additional events or characteristics, append them with `addSpecifiedDocumentStatus()`.
 
 ## Finding all process conditions for a status code
 Sometimes you only have a status code. You can fetch every matching process condition like this:

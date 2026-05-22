@@ -135,26 +135,37 @@ class CdarWriter
             $formatted = $node->add("ram:FormattedIssueDateTime");
             $this->addDateTimeString($formatted, "qdt:DateTimeString", $reference->getFormattedIssueDateTime(), '102');
         }
+        $statuses = $reference->getSpecifiedDocumentStatuses();
         $processCode = $reference->getProcessConditionCode();
-        if ($processCode !== null) {
+        if (empty($statuses) && $processCode !== null) {
             $node->add("ram:ProcessConditionCode", $processCode);
             $processLabel = $this->processConditionLabelForXml($processCode, $reference->getProcessCondition());
             if ($processLabel !== null) {
                 $node->add("ram:ProcessCondition", $processLabel);
             }
-        } elseif ($reference->getProcessCondition() !== null) {
+        } elseif (empty($statuses) && $reference->getProcessCondition() !== null) {
             $node->add("ram:ProcessCondition", $reference->getProcessCondition());
         }
         if ($reference->getIssuerTradeParty() !== null) {
             $this->addTradeParty($node->add("ram:IssuerTradeParty"), $reference->getIssuerTradeParty());
         }
-        if ($reference->getSpecifiedDocumentStatus() !== null) {
-            $this->addSpecifiedDocumentStatus($node->add("ram:SpecifiedDocumentStatus"), $reference->getSpecifiedDocumentStatus());
+        foreach ($statuses as $status) {
+            $this->addSpecifiedDocumentStatus($node->add("ram:SpecifiedDocumentStatus"), $status);
         }
     }
 
     private function addSpecifiedDocumentStatus(UXML $node, SpecifiedDocumentStatus $status): void
     {
+        if ($status->getReferenceDateTime() !== null) {
+            $referenceDate = $node->add("ram:ReferenceDateTime");
+            $this->addDateTimeString($referenceDate, "qdt:DateTimeString", $status->getReferenceDateTime(), '102');
+        }
+        if ($status->getProcessConditionCode() !== null) {
+            $node->add("ram:ProcessConditionCode", $status->getProcessConditionCode());
+        }
+        if ($status->getProcessCondition() !== null) {
+            $node->add("ram:ProcessCondition", $status->getProcessCondition());
+        }
         if ($status->getReasonCode() !== null) {
             $node->add("ram:ReasonCode", $status->getReasonCode());
         }
@@ -186,10 +197,10 @@ class CdarWriter
         if ($characteristic->getValueChangedIndicator() !== null) {
             $indicator = $characteristic->getValueChangedIndicator() ? 'true' : 'false';
             $node->add("ram:ValueChangedIndicator")
-                ->add("udt:IndicatorString", $indicator);
+                ->add("udt:Indicator", $indicator);
         }
-        if ($characteristic->getName() !== null) {
-            $node->add("ram:Name", $characteristic->getName());
+        if ($characteristic->getDescription() !== null) {
+            $node->add("ram:Description", $characteristic->getDescription());
         }
         if ($characteristic->getLocation() !== null) {
             $node->add("ram:Location", $characteristic->getLocation());
@@ -204,8 +215,8 @@ class CdarWriter
             $value = $node->add("ram:ValueDateTime");
             $this->addDateTimeString($value, "udt:DateTimeString", $characteristic->getValueDateTime(), '102');
         }
-        if ($characteristic->getValueText() !== null) {
-            $node->add("ram:ValueText", $characteristic->getValueText());
+        if ($characteristic->getValue() !== null) {
+            $node->add("ram:Value", $characteristic->getValue());
         }
     }
 
