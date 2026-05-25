@@ -3,6 +3,7 @@ namespace Tests\Writers;
 
 use DateTime;
 use Einvoicing\Cdar\AcknowledgementDocument;
+use Einvoicing\Cdar\Enums\ProcessConditionCode;
 use Einvoicing\Cdar\ReferenceReferencedDocument;
 use Einvoicing\Cdar\SpecifiedDocumentCharacteristic;
 use Einvoicing\Cdar\SpecifiedDocumentStatus;
@@ -12,6 +13,25 @@ use PHPUnit\Framework\TestCase;
 use UXML\UXML;
 
 final class CdarWriterTest extends TestCase {
+    public function testWritesPlatformEmittedProcessConditionLabelOnReference(): void {
+        $reference = (new ReferenceReferencedDocument())
+            ->setIssuerAssignedId('INV-201')
+            ->applyProcessCondition(ProcessConditionCode::EMITTED_BY_PLATFORM);
+
+        $ack = (new AcknowledgementDocument())
+            ->setReference($reference);
+
+        $cdar = (new CrossDomainAcknowledgementAndResponse())
+            ->setAcknowledgementDocument($ack);
+
+        $xml = UXML::fromString((new CdarWriter())->export($cdar));
+        $referenceNode = $xml->get('rsm:AcknowledgementDocument/ram:ReferenceReferencedDocument');
+
+        $this->assertSame('201', $referenceNode->get('ram:ProcessConditionCode')->asText());
+        $this->assertSame('Emise_par_la_plateforme', $referenceNode->get('ram:ProcessCondition')->asText());
+        $this->assertSame('10', $referenceNode->get('ram:StatusCode')->asText());
+    }
+
     public function testWritesStatusesInsideSpecifiedDocumentStatusNodes(): void {
         $reference = (new ReferenceReferencedDocument())
             ->setIssuerAssignedId('INV-99')
