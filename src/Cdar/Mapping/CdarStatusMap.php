@@ -17,6 +17,7 @@ class CdarStatusMap
     {
         return [
             ProcessConditionCode::SUBMITTED->value => self::define(ProcessConditionCode::SUBMITTED),
+            ProcessConditionCode::EMITTED_BY_PLATFORM->value => self::define(ProcessConditionCode::EMITTED_BY_PLATFORM),
             ProcessConditionCode::RECEIVED->value => self::define(ProcessConditionCode::RECEIVED),
             ProcessConditionCode::MADE_AVAILABLE->value => self::define(ProcessConditionCode::MADE_AVAILABLE),
             ProcessConditionCode::TAKEN_IN_CHARGE->value => self::define(ProcessConditionCode::TAKEN_IN_CHARGE),
