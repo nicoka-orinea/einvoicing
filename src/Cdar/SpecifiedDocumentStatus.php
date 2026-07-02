@@ -16,6 +16,9 @@ class SpecifiedDocumentStatus
     private ?string $requestedActionCode = null;
     private ?string $requestedAction = null;
     private ?int $sequenceNumeric = null;
+    private ?string $includedNoteContentCode = null;
+    /** @var array<int, array{content: string, languageId: ?string}> */
+    private array $includedNotes = [];
     /** @var SpecifiedDocumentCharacteristic[] */
     private array $characteristics = [];
 
@@ -168,6 +171,53 @@ class SpecifiedDocumentStatus
     public function setSequenceNumeric(?int $sequenceNumeric): self
     {
         $this->sequenceNumeric = $sequenceNumeric;
+        return $this;
+    }
+
+    public function getIncludedNoteContentCode(): ?string
+    {
+        return $this->includedNoteContentCode;
+    }
+
+    public function setIncludedNoteContentCode(?string $includedNoteContentCode): self
+    {
+        $this->includedNoteContentCode = $includedNoteContentCode;
+        return $this;
+    }
+
+    /**
+     * @return array<int, array{content: string, languageId: ?string}>
+     */
+    public function getIncludedNotes(): array
+    {
+        return $this->includedNotes;
+    }
+
+    /**
+     * @param array<int, array{content: string, languageId?: ?string}> $includedNotes
+     */
+    public function setIncludedNotes(array $includedNotes): self
+    {
+        $this->includedNotes = [];
+        foreach ($includedNotes as $note) {
+            if (!isset($note['content'])) {
+                continue;
+            }
+            $this->addIncludedNote((string) $note['content'], $note['languageId'] ?? null);
+        }
+        return $this;
+    }
+
+    public function addIncludedNote(string $content, ?string $languageId = null): self
+    {
+        $content = trim($content);
+        if ($content === '') {
+            return $this;
+        }
+        $this->includedNotes[] = [
+            'content' => $content,
+            'languageId' => $languageId,
+        ];
         return $this;
     }
 

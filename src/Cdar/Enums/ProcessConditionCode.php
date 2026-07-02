@@ -12,7 +12,11 @@ enum ProcessConditionCode: int
     case MADE_AVAILABLE = 203;
     case TAKEN_IN_CHARGE = 204;
     case APPROVED = 205;
+    case PARTIALLY_APPROVED = 206;
     case IN_DISPUTE = 207;
+    case SUSPENDED = 208;
+    case COMPLETED = 209;
+    case REFUSED = 210;
     case PAYMENT_TRANSMITTED = 211;
     case PAID = 212;
     case REJECTED = 213;
@@ -30,7 +34,11 @@ enum ProcessConditionCode: int
             self::MADE_AVAILABLE => 'Made available',
             self::TAKEN_IN_CHARGE => 'Taken in charge',
             self::APPROVED => 'Approved',
+            self::PARTIALLY_APPROVED => 'Partially approved',
             self::IN_DISPUTE => 'In dispute',
+            self::SUSPENDED => 'Suspended',
+            self::COMPLETED => 'Completed',
+            self::REFUSED => 'Refused',
             self::PAYMENT_TRANSMITTED => 'Payment transmitted',
             self::PAID => 'Paid',
             self::REJECTED => 'Rejected',
@@ -50,10 +58,14 @@ enum ProcessConditionCode: int
             self::MADE_AVAILABLE => 'Mise_a_disposition',
             self::TAKEN_IN_CHARGE => 'Prise_en_charge',
             self::APPROVED => 'Approuvee',
+            self::PARTIALLY_APPROVED => 'Approuvee_partiellement',
             self::IN_DISPUTE => 'En_litige',
+            self::SUSPENDED => 'Suspendue',
+            self::COMPLETED => 'Completee',
+            self::REFUSED => 'Refusee',
             self::PAYMENT_TRANSMITTED => 'Paiement_transmis',
             self::PAID => 'Encaissee',
-            self::REJECTED => 'Rejectée',
+            self::REJECTED => 'Rejetee',
         };
     }
 
@@ -70,7 +82,11 @@ enum ProcessConditionCode: int
             self::MADE_AVAILABLE => StatusCode::MADE_AVAILABLE,
             self::TAKEN_IN_CHARGE => StatusCode::TAKEN_IN_CHARGE,
             self::APPROVED => StatusCode::APPROVED,
+            self::PARTIALLY_APPROVED => StatusCode::APPROVED,
             self::IN_DISPUTE => StatusCode::IN_DISPUTE,
+            self::SUSPENDED => StatusCode::IN_DISPUTE,
+            self::COMPLETED => StatusCode::APPROVED,
+            self::REFUSED => StatusCode::REJECTED,
             self::PAYMENT_TRANSMITTED => StatusCode::PAYMENT_EVENT,
             self::PAID => StatusCode::PAYMENT_EVENT,
             self::REJECTED => StatusCode::REJECTED,

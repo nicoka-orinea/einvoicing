@@ -137,13 +137,13 @@ class CdarWriter
         }
         $statuses = $reference->getSpecifiedDocumentStatuses();
         $processCode = $reference->getProcessConditionCode();
-        if (empty($statuses) && $processCode !== null) {
+        if ($processCode !== null) {
             $node->add("ram:ProcessConditionCode", $processCode);
             $processLabel = $this->processConditionLabelForXml($processCode, $reference->getProcessCondition());
             if ($processLabel !== null) {
                 $node->add("ram:ProcessCondition", $processLabel);
             }
-        } elseif (empty($statuses) && $reference->getProcessCondition() !== null) {
+        } elseif ($reference->getProcessCondition() !== null) {
             $node->add("ram:ProcessCondition", $reference->getProcessCondition());
         }
         if ($reference->getIssuerTradeParty() !== null) {
@@ -160,12 +160,6 @@ class CdarWriter
             $referenceDate = $node->add("ram:ReferenceDateTime");
             $this->addDateTimeString($referenceDate, "qdt:DateTimeString", $status->getReferenceDateTime(), '102');
         }
-        if ($status->getProcessConditionCode() !== null) {
-            $node->add("ram:ProcessConditionCode", $status->getProcessConditionCode());
-        }
-        if ($status->getProcessCondition() !== null) {
-            $node->add("ram:ProcessCondition", $status->getProcessCondition());
-        }
         if ($status->getReasonCode() !== null) {
             $node->add("ram:ReasonCode", $status->getReasonCode());
         }
@@ -178,8 +172,15 @@ class CdarWriter
         if ($status->getRequestedAction() !== null) {
             $node->add("ram:RequestedAction", $status->getRequestedAction());
         }
-        if ($status->getSequenceNumeric() !== null) {
-            $node->add("ram:SequenceNumeric", (string) $status->getSequenceNumeric());
+        $node->add("ram:SequenceNumeric", (string) ($status->getSequenceNumeric() ?? 1));
+        if ($status->getProcessConditionCode() !== null) {
+            $node->add("ram:ProcessConditionCode", $status->getProcessConditionCode());
+        }
+        if ($status->getProcessCondition() !== null) {
+            $node->add("ram:ProcessCondition", $status->getProcessCondition());
+        }
+        foreach ($status->getIncludedNotes() as $note) {
+            $this->addIncludedNote($node->add("ram:IncludedNote"), $status->getIncludedNoteContentCode(), $note);
         }
         foreach ($status->getCharacteristics() as $characteristic) {
             $this->addSpecifiedDocumentCharacteristic($node->add("ram:SpecifiedDocumentCharacteristic"), $characteristic);
@@ -205,8 +206,8 @@ class CdarWriter
         if ($characteristic->getLocation() !== null) {
             $node->add("ram:Location", $characteristic->getLocation());
         }
-        if ($characteristic->getValuePercent() !== null) {
-            $node->add("ram:ValuePercent", $this->formatNumber($characteristic->getValuePercent()));
+        if ($characteristic->getValue() !== null) {
+            $node->add("ram:Value", $characteristic->getValue());
         }
         if ($characteristic->getValueAmount() !== null) {
             $this->addValueAmount($node, $characteristic->getValueAmount());
@@ -215,9 +216,24 @@ class CdarWriter
             $value = $node->add("ram:ValueDateTime");
             $this->addDateTimeString($value, "udt:DateTimeString", $characteristic->getValueDateTime(), '102');
         }
-        if ($characteristic->getValue() !== null) {
-            $node->add("ram:Value", $characteristic->getValue());
+        if ($characteristic->getValuePercent() !== null) {
+            $node->add("ram:ValuePercent", $this->formatNumber($characteristic->getValuePercent()));
         }
+    }
+
+    /**
+     * @param array{content: string, languageId: ?string} $note
+     */
+    private function addIncludedNote(UXML $node, ?string $contentCode, array $note): void
+    {
+        if ($contentCode !== null) {
+            $node->add("ram:ContentCode", $contentCode);
+        }
+        $attributes = [];
+        if ($note['languageId'] !== null) {
+            $attributes['languageID'] = $note['languageId'];
+        }
+        $node->add("ram:Content", $note['content'], $attributes);
     }
 
     private function addValueAmount(UXML $node, ValueAmount $amount): void
