@@ -62,7 +62,7 @@ final class CdarWriterTest extends TestCase {
 
         $this->assertSame('212', $status->get('ram:ProcessConditionCode')->asText());
         $this->assertSame('Encaissee', $status->get('ram:ProcessCondition')->asText());
-        $this->assertSame('20260522', $status->get('ram:ReferenceDateTime/qdt:DateTimeString')->asText());
+        $this->assertSame('20260522', $status->get('ram:ReferenceDateTime/udt:DateTimeString')->asText());
         $this->assertSame('Payment terms', $status->get('ram:SpecifiedDocumentCharacteristic/ram:Description')->asText());
         $this->assertSame('true', $status->get('ram:SpecifiedDocumentCharacteristic/ram:ValueChangedIndicator/udt:Indicator')->asText());
         $this->assertSame('Cash', $status->get('ram:SpecifiedDocumentCharacteristic/ram:Value')->asText());

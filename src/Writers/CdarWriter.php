@@ -158,7 +158,10 @@ class CdarWriter
     {
         if ($status->getReferenceDateTime() !== null) {
             $referenceDate = $node->add("ram:ReferenceDateTime");
-            $this->addDateTimeString($referenceDate, "qdt:DateTimeString", $status->getReferenceDateTime(), '102');
+            // ram:ReferenceDateTime is a UN/CEFACT DateTimeType: it only accepts udt:DateTimeString
+            // (or udt:DateTime), never the qualified qdt:DateTimeString. FormattedIssueDateTime,
+            // being a FormattedDateTimeType, is the one that keeps qdt.
+            $this->addDateTimeString($referenceDate, "udt:DateTimeString", $status->getReferenceDateTime(), '102');
         }
         if ($status->getReasonCode() !== null) {
             $node->add("ram:ReasonCode", $status->getReasonCode());
