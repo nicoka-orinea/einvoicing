@@ -133,7 +133,8 @@ class CdarWriter
         }
         if ($reference->getFormattedIssueDateTime() !== null) {
             $formatted = $node->add("ram:FormattedIssueDateTime");
-            $this->addDateTimeString($formatted, "qdt:DateTimeString", $reference->getFormattedIssueDateTime(), '102');
+            // Flux 6 / CDV MDT-100-1: FormattedIssueDateTime uses UNTDID 2379 format 204 (YmdHis).
+            $this->addDateTimeString($formatted, "qdt:DateTimeString", $reference->getFormattedIssueDateTime(), '204');
         }
         $statuses = $reference->getSpecifiedDocumentStatuses();
         $processCode = $reference->getProcessConditionCode();
@@ -156,18 +157,28 @@ class CdarWriter
 
     private function addSpecifiedDocumentStatus(UXML $node, SpecifiedDocumentStatus $status): void
     {
+        // Child order is fixed by the Flux 6 / CDV CI-ARM content model (Annexe 2):
+        // ReferenceDateTime, ReasonCode, Reason, ProcessConditionCode, ProcessCondition,
+        // RequestedActionCode, RequestedAction, SequenceNumeric, IncludedNote,
+        // SpecifiedDocumentCharacteristic. Emitting ProcessConditionCode or SequenceNumeric
+        // out of this order makes the CDAR fail XSD validation (cvc-complex-type.2.4.a).
         if ($status->getReferenceDateTime() !== null) {
             $referenceDate = $node->add("ram:ReferenceDateTime");
             // ram:ReferenceDateTime is a UN/CEFACT DateTimeType: it only accepts udt:DateTimeString
-            // (or udt:DateTime), never the qualified qdt:DateTimeString. FormattedIssueDateTime,
-            // being a FormattedDateTimeType, is the one that keeps qdt.
-            $this->addDateTimeString($referenceDate, "udt:DateTimeString", $status->getReferenceDateTime(), '102');
+            // (or udt:DateTime), never qdt:DateTimeString. MDT-110-1: UNTDID 2379 format 204 (YmdHis).
+            $this->addDateTimeString($referenceDate, "udt:DateTimeString", $status->getReferenceDateTime(), '204');
         }
         if ($status->getReasonCode() !== null) {
             $node->add("ram:ReasonCode", $status->getReasonCode());
         }
         if ($status->getReason() !== null) {
             $node->add("ram:Reason", $status->getReason());
+        }
+        if ($status->getProcessConditionCode() !== null) {
+            $node->add("ram:ProcessConditionCode", $status->getProcessConditionCode());
+        }
+        if ($status->getProcessCondition() !== null) {
+            $node->add("ram:ProcessCondition", $status->getProcessCondition());
         }
         if ($status->getRequestedActionCode() !== null) {
             $node->add("ram:RequestedActionCode", $status->getRequestedActionCode());
@@ -176,12 +187,6 @@ class CdarWriter
             $node->add("ram:RequestedAction", $status->getRequestedAction());
         }
         $node->add("ram:SequenceNumeric", (string) ($status->getSequenceNumeric() ?? 1));
-        if ($status->getProcessConditionCode() !== null) {
-            $node->add("ram:ProcessConditionCode", $status->getProcessConditionCode());
-        }
-        if ($status->getProcessCondition() !== null) {
-            $node->add("ram:ProcessCondition", $status->getProcessCondition());
-        }
         foreach ($status->getIncludedNotes() as $note) {
             $this->addIncludedNote($node->add("ram:IncludedNote"), $status->getIncludedNoteContentCode(), $note);
         }
@@ -200,8 +205,10 @@ class CdarWriter
         }
         if ($characteristic->getValueChangedIndicator() !== null) {
             $indicator = $characteristic->getValueChangedIndicator() ? 'true' : 'false';
+            // MDT-209: SpecifiedDocumentCharacteristic/ValueChangedIndicator carries udt:IndicatorString
+            // (unlike MultipleReferencesIndicator / CopyIndicator which use udt:Indicator).
             $node->add("ram:ValueChangedIndicator")
-                ->add("udt:Indicator", $indicator);
+                ->add("udt:IndicatorString", $indicator);
         }
         if ($characteristic->getDescription() !== null) {
             $node->add("ram:Description", $characteristic->getDescription());
