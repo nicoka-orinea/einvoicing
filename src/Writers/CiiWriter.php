@@ -13,6 +13,7 @@ class CiiWriter extends AbstractWriter
     const NS_INVOICE = 'urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100';
     const NS_RAM = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
     const NS_UDT = 'urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100';
+    const NS_QDT = 'urn:un:unece:uncefact:data:standard:QualifiedDataType:100';
 
     /**
      * Breakdown recalculé après application des remises/majorations header,
@@ -62,6 +63,7 @@ class CiiWriter extends AbstractWriter
         return UXML::newInstance("rsm:CrossIndustryInvoice", null, [
             'xmlns:rsm' => self::NS_INVOICE,
             'xmlns:ram' => self::NS_RAM,
+            'xmlns:qdt' => self::NS_QDT,
             'xmlns:udt' => self::NS_UDT
         ]);
     }
@@ -365,6 +367,23 @@ class CiiWriter extends AbstractWriter
          *    + la TVA recalculée.
          */
         $this->addMonetarySummation($settlement, $invoice);
+
+        /**
+         * 5) Référence(s) à la (aux) facture(s) antérieure(s) — BT-25 / BT-26.
+         *    Obligatoire pour un avoir (BR-FR-CO-05). Positionné en dernier :
+         *    dans HeaderTradeSettlementType, InvoiceReferencedDocument vient
+         *    APRÈS SpecifiedTradeSettlementHeaderMonetarySummation.
+         */
+        foreach ($invoice->getPrecedingInvoiceReferences() as $ref) {
+            $doc = $settlement->add("ram:InvoiceReferencedDocument");
+            $doc->add("ram:IssuerAssignedID", $ref->getValue());
+            if ($ref->getIssueDate() !== null) {
+                $doc->add("ram:FormattedIssueDateTime")
+                    ->add("qdt:DateTimeString", $ref->getIssueDate()->format("Ymd"), [
+                        "format" => "102"
+                    ]);
+            }
+        }
     }
 
     /**

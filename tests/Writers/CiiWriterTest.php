@@ -6,6 +6,7 @@ use Einvoicing\AllowanceOrCharge;
 use Einvoicing\Identifier;
 use Einvoicing\Invoice;
 use Einvoicing\InvoiceLine;
+use Einvoicing\InvoiceReference;
 use Einvoicing\Payments\Payment;
 use Einvoicing\Payments\Transfer;
 use Einvoicing\Party;
@@ -109,5 +110,41 @@ final class CiiWriterTest extends TestCase {
         $this->assertSame('5.00', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:ChargeTotalAmount')->asText());
         $this->assertSame('20.00', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TotalPrepaidAmount')->asText());
         $this->assertSame('0.01', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:RoundingAmount')->asText());
+    }
+
+    public function testWritesPrecedingInvoiceReferenceForCreditNote(): void {
+        $invoice = new Invoice();
+        $invoice->setNumber('AV-001')
+            ->setType(Invoice::TYPE_CREDIT_NOTE)
+            ->setIssueDate(new DateTime('2026-05-20'))
+            ->setCurrency('EUR')
+            ->setSeller((new Party())->addIdentifier(new Identifier('SELLER-001', '0002'))->setElectronicAddress(new Identifier('seller@example.test', 'EM'))->setCompanyId(new Identifier('SELLER-001', '0002'))->setName('Seller')->setCountry('FR'))
+            ->setBuyer((new Party())->addIdentifier(new Identifier('BUYER-001', '0002'))->setElectronicAddress(new Identifier('buyer@example.test', 'EM'))->setCompanyId(new Identifier('BUYER-001', '0002'))->setName('Buyer')->setCountry('FR'))
+            ->addPrecedingInvoiceReference(new InvoiceReference('INV-042', new DateTime('2026-04-10')))
+            ->addLine((new InvoiceLine())->setName('Line')->setPrice(100)->setQuantity(1)->setVatCategory('S')->setVatRate(20));
+
+        $xml = UXML::fromString((new CiiWriter())->export($invoice));
+
+        $ref = $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:InvoiceReferencedDocument');
+        $this->assertNotNull($ref, 'BR-FR-CO-05: an InvoiceReferencedDocument must be present for a credit note');
+        $this->assertSame('INV-042', $ref->get('ram:IssuerAssignedID')->asText());
+        $date = $ref->get('ram:FormattedIssueDateTime/qdt:DateTimeString');
+        $this->assertSame('20260410', $date->asText());
+        $this->assertSame('102', $date->element()->getAttribute('format'));
+    }
+
+    public function testDoesNotWritePrecedingInvoiceReferenceForRegularInvoice(): void {
+        $invoice = new Invoice();
+        $invoice->setNumber('INV-003')
+            ->setType(Invoice::TYPE_COMMERCIAL_INVOICE)
+            ->setIssueDate(new DateTime('2026-05-20'))
+            ->setCurrency('EUR')
+            ->setSeller((new Party())->addIdentifier(new Identifier('SELLER-001', '0002'))->setElectronicAddress(new Identifier('seller@example.test', 'EM'))->setCompanyId(new Identifier('SELLER-001', '0002'))->setName('Seller')->setCountry('FR'))
+            ->setBuyer((new Party())->addIdentifier(new Identifier('BUYER-001', '0002'))->setElectronicAddress(new Identifier('buyer@example.test', 'EM'))->setCompanyId(new Identifier('BUYER-001', '0002'))->setName('Buyer')->setCountry('FR'))
+            ->addLine((new InvoiceLine())->setName('Line')->setPrice(100)->setQuantity(1)->setVatCategory('S')->setVatRate(20));
+
+        $xml = UXML::fromString((new CiiWriter())->export($invoice));
+
+        $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:InvoiceReferencedDocument'));
     }
 }
