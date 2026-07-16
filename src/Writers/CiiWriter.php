@@ -123,10 +123,16 @@ class CiiWriter extends AbstractWriter
                     "schemeID" => $line->getStandardIdentifier()->getScheme()
                 ]);
             }
-            $product->add("ram:SellerAssignedID", $line->getSellerIdentifier());
-            $product->add("ram:BuyerAssignedID", $line->getBuyerIdentifier());
+            if ($this->hasValue($line->getSellerIdentifier())) {
+                $product->add("ram:SellerAssignedID", $line->getSellerIdentifier());
+            }
+            if ($this->hasValue($line->getBuyerIdentifier())) {
+                $product->add("ram:BuyerAssignedID", $line->getBuyerIdentifier());
+            }
             $product->add("ram:Name", $line->getName());
-            $product->add("ram:Description", $line->getDescription());
+            if ($this->hasValue($line->getDescription())) {
+                $product->add("ram:Description", $line->getDescription());
+            }
             if ($line->getOriginCountry() !== null) {
                 $product->add("ram:OriginTradeCountry")
                     ->add("ram:ID", $line->getOriginCountry());
@@ -682,7 +688,15 @@ class CiiWriter extends AbstractWriter
         foreach ($invoice->getPayments() as $payment) {
             $meansCode = $payment->getMeansCode();
             $meansText = $payment->getMeansText();
-            $transfers = $payment->getTransfers();
+            $transfers = array_values(array_filter(
+                $payment->getTransfers(),
+                fn ($transfer) => $this->hasValue($transfer->getAccountId()),
+            ));
+
+            // A bank transfer without a beneficiary account is invalid under EN 16931.
+            if ($meansCode === '58' && empty($transfers)) {
+                continue;
+            }
 
             if ($meansCode === null && $meansText === null && empty($transfers)) {
                 continue;
@@ -701,12 +715,12 @@ class CiiWriter extends AbstractWriter
                 $accountName = $transfer->getAccountName();
                 $provider = $transfer->getProvider();
 
-                if ($accountId !== null || $accountName !== null) {
+                if ($this->hasValue($accountId) || $this->hasValue($accountName)) {
                     $account = $xml->add("ram:PayeePartyCreditorFinancialAccount");
-                    if ($accountId !== null) {
+                    if ($this->hasValue($accountId)) {
                         $account->add("ram:IBANID", $accountId);
                     }
-                    if ($accountName !== null) {
+                    if ($this->hasValue($accountName)) {
                         $account->add("ram:AccountName", $accountName);
                     }
                 }
@@ -815,9 +829,15 @@ class CiiWriter extends AbstractWriter
         $addr = $parent->add("ram:PostalTradeAddress");
         $addr->add("ram:PostcodeCode", $party->getPostalCode());
         $address = $party->getAddress();
-        $addr->add("ram:LineOne", $address[0] ?? null);
-        $addr->add("ram:LineTwo", $address[1] ?? null);
-        $addr->add("ram:LineThree", $address[2] ?? null);
+        if ($this->hasValue($address[0] ?? null)) {
+            $addr->add("ram:LineOne", $address[0]);
+        }
+        if ($this->hasValue($address[1] ?? null)) {
+            $addr->add("ram:LineTwo", $address[1]);
+        }
+        if ($this->hasValue($address[2] ?? null)) {
+            $addr->add("ram:LineThree", $address[2]);
+        }
         $addr->add("ram:CityName", $party->getCity());
         $addr->add("ram:CountryID", $party->getCountry());
     }
@@ -846,5 +866,10 @@ class CiiWriter extends AbstractWriter
             ->add("ram:ID", $vatNumber, [
                 "schemeID" => "VA"
             ]);
+    }
+
+    private function hasValue(?string $value): bool
+    {
+        return $value !== null && trim($value) !== '';
     }
 }

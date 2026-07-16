@@ -50,6 +50,30 @@ final class CiiWriterTest extends TestCase {
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:GlobalID'));
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:URIUniversalCommunication'));
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:SpecifiedLegalOrganization'));
+        $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:PostalTradeAddress/ram:LineTwo'));
+        $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:PostalTradeAddress/ram:LineThree'));
+        $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedTradeProduct/ram:BuyerAssignedID'));
+        $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedTradeProduct/ram:Description'));
+    }
+
+    public function testDoesNotWriteBankTransferWithoutBeneficiaryAccount(): void {
+        $invoice = (new Invoice)
+            ->setNumber('INV-002')
+            ->setIssueDate(new DateTime('2026-01-15'))
+            ->setCurrency('EUR')
+            ->setSeller((new Party)->setName('Seller')->setCountry('FR'))
+            ->setBuyer((new Party)->setName('Buyer')->setCountry('FR'))
+            ->addPayment((new Payment())->setMeansCode('58')->addTransfer((new Transfer())->setAccountId(' ')))
+            ->addLine((new InvoiceLine)
+                ->setName('Line #1')
+                ->setPrice(100)
+                ->setQuantity(1)
+                ->setVatCategory('S')
+                ->setVatRate(20));
+
+        $xml = UXML::fromString((new CiiWriter())->export($invoice));
+
+        $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementPaymentMeans'));
     }
 
     public function testCanGenerateDocumentNotesWithSubjectCode(): void {
