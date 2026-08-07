@@ -25,7 +25,7 @@ final class Flux10WriterTest extends TestCase
     private function assertValidAgainstEreportingXsd(string $xml): void
     {
         $root = dirname(__DIR__, 2);
-        $xsd = $root . '/specifications-externes-v3.1/3- XSD_v3.1/1 - E-reporting/ereporting.xsd';
+        $xsd = $root . '/specifications-externes-v3.2/3- XSD_v3.2/1 - E-reporting/ereporting.xsd';
 
         $dom = new DOMDocument();
         $dom->preserveWhiteSpace = false;
