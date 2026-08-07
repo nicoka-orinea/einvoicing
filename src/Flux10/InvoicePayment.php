@@ -22,7 +22,11 @@ class InvoicePayment
     protected DateTime|string|null $paymentDate = null;
 
     /**
-     * Payment amount (legacy shortcut: exported as a single `SubTotals`).
+     * Payment amount.
+     *
+     * No longer exported: a payment is declared broken down by VAT rate (TG-36), and a
+     * single total cannot be attributed to a rate without inventing one.
+     *
      * @var float|string|null
      */
     protected float|string|null $amount = null;
@@ -117,6 +121,8 @@ class InvoicePayment
 
     /**
      * Get payment amount.
+     *
+     * @deprecated Use {@see getAmountsByRate()} instead.
      */
     public function getAmount(): float|string|null
     {
@@ -126,6 +132,8 @@ class InvoicePayment
     /**
      * Set payment amount.
      *
+     * @deprecated Use {@see addAmountByRate()} instead: the PPF expects the amount split
+     *             by VAT rate (TG-36).
      * @param float|string|null $amount
      */
     public function setAmount(float|string|null $amount): self

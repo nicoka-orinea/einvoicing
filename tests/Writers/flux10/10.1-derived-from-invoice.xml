@@ -7,12 +7,9 @@
     </IssueDateTime>
     <TypeCode>IN</TypeCode>
     <Sender>
-      <Id schemeId="0002">123456789</Id>
-      <Name>Seller SA</Name>
-      <RoleCode>SE</RoleCode>
-      <URIUniversalCommunication>
-        <URIID>iso6523-actorid-upis::0225:12345678900023</URIID>
-      </URIUniversalCommunication>
+      <Id schemeId="0238">PA01</Id>
+      <Name>Accredited Platform SA</Name>
+      <RoleCode>WK</RoleCode>
     </Sender>
     <Issuer>
       <Id schemeId="0002">123456789</Id>
@@ -25,17 +22,17 @@
   </ReportDocument>
   <TransactionsReport>
     <ReportPeriod>
-      <StartDate>2026-01-10</StartDate>
-      <EndDate>2026-01-10</EndDate>
+      <StartDate>20260110</StartDate>
+      <EndDate>20260110</EndDate>
     </ReportPeriod>
     <Invoice>
       <ID>INV-1</ID>
-      <IssueDate>2026-01-10</IssueDate>
+      <IssueDate>20260110</IssueDate>
       <TypeCode>380</TypeCode>
       <CurrencyCode>EUR</CurrencyCode>
       <BusinessProcess>
         <ID>S1</ID>
-        <TypeID>urn:cen.eu:en16931:2017#compliant#urn:fdc:peppol.eu:2017:poacc:billing:3.0</TypeID>
+        <TypeID>urn.cpro.gouv.fr:1p0:ereporting</TypeID>
       </BusinessProcess>
       <Seller>
         <CompanyId schemeId="0002">123456789</CompanyId>

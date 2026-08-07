@@ -8,7 +8,7 @@ use Einvoicing\Flux10\AmountByRate;
 use Einvoicing\Flux10\InvoicePayment;
 use Einvoicing\Flux10\Issuer;
 use Einvoicing\Flux10\IssuerRoleCode;
-use Einvoicing\Flux10\Party;
+use Einvoicing\Flux10\Sender;
 use Einvoicing\Flux10\Period;
 use Einvoicing\Flux10\Report;
 use Einvoicing\Flux10\TransactionPayment;
@@ -68,12 +68,13 @@ final class Flux10WriterTest extends TestCase
         $invoice = new Invoice(Peppol::class);
         $invoice->setNumber('INV-1')
             ->setIssueDate(new DateTime('2025-01-10'))
-            ->setBusinessProcess('PROCESS')
+            ->setBusinessProcess('S1')
             ->setSeller($seller)
             ->setBuyer($buyer)
             ->addLine((new InvoiceLine())->setName('Line')->setPrice(100)->setQuantity(1)->setVatRate(20));
 
-        $writer = new Flux10Writer();
+        $writer = (new Flux10Writer())
+            ->setSender((new Sender())->setMatricule('PA01')->setName('Accredited Platform SA'));
         $xml = $writer->export($invoice);
         $this->assertValidAgainstEreportingXsd($xml);
 
@@ -91,9 +92,11 @@ final class Flux10WriterTest extends TestCase
         $this->assertSame('DE123456789', $buyerVatNodes->item(0)?->textContent);
         $this->assertSame('VAT', $buyerVatNodes->item(0)?->getAttribute('qualifyingId'));
 
-        $senderUriNodes = $dom->getElementsByTagName('Sender')->item(0)?->getElementsByTagName('URIID');
-        $this->assertNotNull($senderUriNodes);
-        $this->assertSame('iso6523-actorid-upis::0225:12345678900023', $senderUriNodes->item(0)?->textContent);
+        $senderNode = $dom->getElementsByTagName('Sender')->item(0);
+        $this->assertNotNull($senderNode);
+        $this->assertSame('PA01', $senderNode->getElementsByTagName('Id')->item(0)?->textContent);
+        $this->assertSame('0238', $senderNode->getElementsByTagName('Id')->item(0)?->getAttribute('schemeId'));
+        $this->assertSame('WK', $senderNode->getElementsByTagName('RoleCode')->item(0)?->textContent);
 
         $issuerUriNodes = $dom->getElementsByTagName('Issuer')->item(0)?->getElementsByTagName('URIID');
         $this->assertNotNull($issuerUriNodes);
@@ -106,10 +109,9 @@ final class Flux10WriterTest extends TestCase
             ->setStartDate(new DateTime('2025-01-01'))
             ->setEndDate(new DateTime('2025-01-31'));
 
-        $sender = (new Party())
-            ->setSiren('123456789')
-            ->setSchemeId('0002')
-            ->setName('Sender SA');
+        $sender = (new Sender())
+            ->setMatricule('PA01')
+            ->setName('Accredited Platform SA');
 
         $issuer = (new Issuer())
             ->setSiren('123456789')

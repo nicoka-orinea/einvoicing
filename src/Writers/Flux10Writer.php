@@ -3,14 +3,18 @@
 namespace Einvoicing\Writers;
 
 use DateTime;
-use Einvoicing\Flux10\AmountByRate as Flux10AmountByRate;
+use DateTimeImmutable;
+use DateTimeInterface;
+use DateTimeZone;
+use Einvoicing\Exceptions\ValidationException;
 use Einvoicing\Flux10\Invoice as Flux10Invoice;
 use Einvoicing\Flux10\InvoicePayment as Flux10InvoicePayment;
 use Einvoicing\Flux10\Issuer as Flux10Issuer;
 use Einvoicing\Flux10\IssuerRoleCode as Flux10IssuerRoleCode;
-use Einvoicing\Flux10\Party as Flux10Party;
+use Einvoicing\Flux10\AmountByRate as Flux10AmountByRate;
 use Einvoicing\Flux10\Period as Flux10Period;
 use Einvoicing\Flux10\Report as Flux10Report;
+use Einvoicing\Flux10\Sender as Flux10Sender;
 use Einvoicing\Flux10\TaxBreakdown as Flux10TaxBreakdown;
 use Einvoicing\Flux10\Transaction as Flux10Transaction;
 use Einvoicing\Flux10\TransactionPayment as Flux10TransactionPayment;
@@ -20,15 +24,70 @@ use Einvoicing\Models\VatBreakdown as InvoiceVatBreakdown;
 use Einvoicing\Party;
 use InvalidArgumentException;
 use UXML\UXML;
+use function get_debug_type;
+use function implode;
+use function in_array;
 use function preg_match;
+use function sprintf;
 use function trim;
 
 class Flux10Writer extends AbstractMultiWriter
 {
     private const ROOT_ELEMENT = 'Report';
-    private const DATE_FORMAT = 'Y-m-d';
-    private const DATE_TIME_FORMAT = 'c';
+
+    /** All Flux 10 dates are unseparated — G1.09 */
+    private const DATE_FORMAT = 'Ymd';
+
+    /** Transmission timestamp — TT-3, G7.53 */
+    private const DATE_TIME_FORMAT = 'YmdHis';
+
+    /** The timestamp belongs to the emitting platform, not to the server locale — G7.40 */
+    private const TIMEZONE = 'Europe/Paris';
+
     private const DEFAULT_TRANSMISSION_TYPE = 'IN';
+
+    /** Profile identifier of the e-reporting flow — TT-29, S1.12 */
+    public const EREPORTING_PROFILE = 'urn.cpro.gouv.fr:1p0:ereporting';
+
+    /** VAT totals are always expressed in euros — TT-202, G6.23 */
+    private const VAT_CURRENCY = 'EUR';
+
+    /**
+     * Invoicing frameworks accepted in Flux 10 — TT-28, G1.02.
+     *
+     * Kept here until the dedicated enum lands: presets populate the EN 16931 business
+     * process with their own URN (Peppol sets `urn:fdc:peppol.eu:…`), which would
+     * otherwise be forwarded as-is and rejected.
+     */
+    private const BUSINESS_PROCESS_CODES = [
+        'B1', 'S1', 'M1', 'B2', 'S2', 'M2', 'B4', 'S4', 'M4', 'S5', 'S6', 'B7', 'S7',
+    ];
+
+    /**
+     * Emitting accredited platform, used when building a report from plain invoices.
+     * @var Flux10Sender|null
+     */
+    private $sender = null;
+
+    /**
+     * Get the emitting accredited platform.
+     */
+    public function getSender(): ?Flux10Sender
+    {
+        return $this->sender;
+    }
+
+    /**
+     * Set the emitting accredited platform (TG-3).
+     *
+     * Required by {@see exportAll()} and {@see export()}: an EN 16931 invoice carries no
+     * platform matricule, so it cannot be inferred from the documents being reported.
+     */
+    public function setSender(?Flux10Sender $sender): self
+    {
+        $this->sender = $sender;
+        return $this;
+    }
 
     /**
      * Export one or more invoices, or an already prepared Flux 10 report.
@@ -59,11 +118,21 @@ class Flux10Writer extends AbstractMultiWriter
      */
     public function exportReport(Flux10Report $report): string
     {
+        $hasTransactions = !empty($report->getInvoices()) || !empty($report->getTransactions());
+        $hasPayments = !empty($report->getInvoicePayments()) || !empty($report->getTransactionPayments());
+
+        if ($hasTransactions && $hasPayments) {
+            throw new ValidationException(
+                'A Flux 10 transmission carries either aggregated transactions or aggregated payments, ' .
+                'never both. Split them into two transmissions.',
+                'G6.29'
+            );
+        }
+
         $xml = $this->createRoot();
 
         $this->addReportDocument($xml, $report);
 
-        $hasTransactions = !empty($report->getInvoices()) || !empty($report->getTransactions());
         if ($hasTransactions) {
             $transactionsReport = $xml->add('TransactionsReport');
             $this->addReportPeriod($transactionsReport, $report);
@@ -71,7 +140,6 @@ class Flux10Writer extends AbstractMultiWriter
             $this->addTransactions($transactionsReport, $report->getTransactions());
         }
 
-        $hasPayments = !empty($report->getInvoicePayments()) || !empty($report->getTransactionPayments());
         if ($hasPayments) {
             $paymentsReport = $xml->add('PaymentsReport');
             $this->addReportPeriod($paymentsReport, $report);
@@ -95,7 +163,7 @@ class Flux10Writer extends AbstractMultiWriter
         $this->addStringNode($reportDocument, 'Name', $report->getReportName());
 
         $issueDateTime = $reportDocument->add('IssueDateTime');
-        $issueDateTime->add('DateTimeString', (new DateTime())->format(self::DATE_TIME_FORMAT));
+        $issueDateTime->add('DateTimeString', $this->formatDateTime($report->getIssueDateTime()));
 
         $transmissionType = $report->getTransmissionType();
         if ($transmissionType === '') {
@@ -103,32 +171,68 @@ class Flux10Writer extends AbstractMultiWriter
         }
         $reportDocument->add('TypeCode', $transmissionType);
 
+        $sender = $report->getSender();
+        if (!$sender instanceof Flux10Sender) {
+            throw new ValidationException(
+                'Flux10 report must define a Sender: the accredited platform emitting the transmission, ' .
+                'identified by its 4-character matricule',
+                'G6.22'
+            );
+        }
+
         $issuer = $report->getIssuer();
         if (!$issuer instanceof Flux10Issuer || $issuer->getRoleCode() === null) {
-            throw new InvalidArgumentException('Flux10 report must define an issuer with a role code');
+            throw new ValidationException(
+                'Flux10 report must define an Issuer with a role code (SE or BY)',
+                'G7.52'
+            );
         }
 
-        $sender = $report->getSender() ?? $issuer;
-        if (!$sender instanceof Flux10Party) {
-            throw new InvalidArgumentException('Flux10 report must define a sender');
-        }
-
-        $this->addReportParty($reportDocument->add('Sender'), $sender, $issuer->getRoleCode()->value, 'Sender');
-        $this->addReportParty($reportDocument->add('Issuer'), $issuer, $issuer->getRoleCode()->value, 'Issuer');
+        $this->addSenderParty($reportDocument->add('Sender'), $sender);
+        $this->addIssuerParty($reportDocument->add('Issuer'), $issuer);
     }
 
-    private function addReportParty(UXML $parent, Flux10Party $party, string $roleCode, string $context): void
+    /**
+     * Serialize the emitting accredited platform — TG-3.
+     */
+    private function addSenderParty(UXML $parent, Flux10Sender $sender): void
     {
-        $schemeId = $party->getSchemeId() ?? 'UNKNOWN';
-        $id = $party->getSiren();
-        if ($id === null || $id === '') {
-            throw new InvalidArgumentException("Flux10 report {$context} must define an Id value");
+        $matricule = $sender->getMatricule();
+        if ($matricule === null || $matricule === '') {
+            throw new ValidationException('Flux10 report Sender must define a platform matricule (TT-8)', 'G6.22');
         }
-        $parent->add('Id', $id, ['schemeId' => $schemeId]);
-        $this->addRequiredStringNode($parent, 'Name', $party->getName(), "{$context}/Name");
-        $parent->add('RoleCode', $roleCode);
 
-        $uri = $party->getUriUniversalCommunication();
+        $parent->add('Id', $matricule, ['schemeId' => Flux10Sender::SCHEME_ID]);
+        $this->addRequiredStringNode($parent, 'Name', $sender->getName(), 'Sender/Name');
+        $parent->add('RoleCode', $sender->getRoleCode());
+
+        $this->addUniversalCommunication($parent, $sender->getUriUniversalCommunication());
+    }
+
+    /**
+     * Serialize the declarant — TG-5. Its identifier is a SIREN under scheme 0002 (G6.26).
+     */
+    private function addIssuerParty(UXML $parent, Flux10Issuer $issuer): void
+    {
+        $siren = $issuer->getSiren();
+        if ($siren === null || $siren === '') {
+            throw new ValidationException('Flux10 report Issuer must define a SIREN (TT-13)', 'G6.26');
+        }
+
+        $roleCode = $issuer->getRoleCode();
+        if ($roleCode === null) {
+            throw new ValidationException('Flux10 report Issuer must declare a role code (TT-15)', 'G7.52');
+        }
+
+        $parent->add('Id', $siren, ['schemeId' => '0002']);
+        $this->addRequiredStringNode($parent, 'Name', $issuer->getName(), 'Issuer/Name');
+        $parent->add('RoleCode', $roleCode->value);
+
+        $this->addUniversalCommunication($parent, $issuer->getUriUniversalCommunication());
+    }
+
+    private function addUniversalCommunication(UXML $parent, ?string $uri): void
+    {
         if ($uri !== null && $uri !== '') {
             $parent->add('URIUniversalCommunication')->add('URIID', $uri);
         }
@@ -148,9 +252,14 @@ class Flux10Writer extends AbstractMultiWriter
 
     private function addInvoices(UXML $xml, array $invoices): void
     {
-        foreach ($invoices as $invoice) {
+        foreach ($invoices as $index => $invoice) {
             if (!$invoice instanceof Flux10Invoice) {
-                continue;
+                throw new InvalidArgumentException(sprintf(
+                    'Report invoice #%s must be a %s, got %s',
+                    $index,
+                    Flux10Invoice::class,
+                    get_debug_type($invoice)
+                ));
             }
 
             $node = $xml->add('Invoice');
@@ -188,7 +297,7 @@ class Flux10Writer extends AbstractMultiWriter
             if ($hasBuyer) {
                 $buyer = $node->add('Buyer');
                 if ($invoice->getBuyerId() !== null && $invoice->getBuyerId() !== '') {
-                    $this->addSchemeValueNode($buyer, 'CompanyId', $invoice->getBuyerId(), $invoice->getBuyerSchemeId());
+                    $this->addSchemeValueNode($buyer, 'CompanyId', $invoice->getBuyerId(), $invoice->getBuyerSchemeId(), 'Invoice/Buyer/CompanyId');
                 }
                 if ($invoice->getBuyerVatId() !== null && $invoice->getBuyerVatId() !== '') {
                     $buyer->add('TaxRegistrationId', $invoice->getBuyerVatId(), ['qualifyingId' => 'VAT']);
@@ -201,39 +310,41 @@ class Flux10Writer extends AbstractMultiWriter
             $monetaryTotal = $node->add('MonetaryTotal');
             $this->addAmountNode($monetaryTotal, 'TaxExclusiveAmount', $invoice->getTaxExclusiveAmount());
 
-            $taxAmount = $this->formatAmount($invoice->getTaxAmount());
-            if ($taxAmount === null) {
-                throw new InvalidArgumentException('Invoice/MonetaryTotal/TaxAmount is required');
-            }
-            $currencyCode = $invoice->getCurrencyCode();
-            if ($currencyCode === null || $currencyCode === '') {
-                throw new InvalidArgumentException('Invoice/CurrencyCode is required to set MonetaryTotal/TaxAmount@CurrencyCode');
-            }
-            $monetaryTotal->add('TaxAmount', $taxAmount, ['CurrencyCode' => $currencyCode]);
+            $monetaryTotal->add(
+                'TaxAmount',
+                $this->resolveVatAmountInEuros(
+                    $invoice->getVatAmountEur(),
+                    $invoice->getTaxAmount(),
+                    $invoice->getCurrencyCode(),
+                    'Invoice/MonetaryTotal/TaxAmount'
+                ),
+                ['CurrencyCode' => self::VAT_CURRENCY]
+            );
 
             $breakdown = $invoice->getTaxBreakdown();
             if (empty($breakdown)) {
-                $fallback = new Flux10TaxBreakdown();
-                $fallback->setRate(0);
-                $fallback->setTaxableAmount($invoice->getTaxExclusiveAmount());
-                $fallback->setTaxAmount($invoice->getTaxAmount());
-                $breakdown = [$fallback];
+                throw new ValidationException(
+                    sprintf('Invoice "%s" has no VAT breakdown (TG-23)', $invoice->getInvoiceId() ?? ''),
+                    'G1.53'
+                );
             }
 
             foreach ($breakdown as $item) {
-                if (!$item instanceof Flux10TaxBreakdown) {
-                    continue;
-                }
-                $this->addInvoiceTaxSubtotal($node, $item);
+                $this->addInvoiceTaxSubtotal($node, $this->assertTaxBreakdown($item, 'Invoice'));
             }
         }
     }
 
     private function addInvoicePayments(UXML $xml, array $payments): void
     {
-        foreach ($payments as $payment) {
+        foreach ($payments as $index => $payment) {
             if (!$payment instanceof Flux10InvoicePayment) {
-                continue;
+                throw new InvalidArgumentException(sprintf(
+                    'Report invoice payment #%s must be a %s, got %s',
+                    $index,
+                    Flux10InvoicePayment::class,
+                    get_debug_type($payment)
+                ));
             }
 
             $node = $xml->add('Invoice');
@@ -245,22 +356,17 @@ class Flux10Writer extends AbstractMultiWriter
 
             $subTotals = $payment->getAmountsByRate();
             if (empty($subTotals)) {
-                $amount = $payment->getAmount();
-                if ($amount !== null && $amount !== '') {
-                    $fallback = new Flux10AmountByRate();
-                    $fallback->setRate(0);
-                    $fallback->setAmount($amount);
-                    $subTotals = [$fallback];
-                }
-            }
-            if (empty($subTotals)) {
-                throw new InvalidArgumentException('PaymentsReport/Invoice/Payment/SubTotals must have at least one item');
+                throw new ValidationException(
+                    sprintf(
+                        'Payment for invoice "%s" has no amount broken down by VAT rate (TG-36)',
+                        $payment->getInvoiceId() ?? ''
+                    ),
+                    'G1.53'
+                );
             }
 
             foreach ($subTotals as $subTotal) {
-                if (!$subTotal instanceof Flux10AmountByRate) {
-                    continue;
-                }
+                $subTotal = $this->assertAmountByRate($subTotal, 'PaymentsReport/Invoice/Payment/SubTotals');
                 $subTotalNode = $paymentNode->add('SubTotals');
                 $this->addRequiredAmountNode($subTotalNode, 'TaxPercent', $subTotal->getRate(), 'PaymentsReport/Invoice/Payment/SubTotals/TaxPercent');
                 $this->addStringNode($subTotalNode, 'CurrencyCode', $payment->getCurrencyCode());
@@ -271,9 +377,14 @@ class Flux10Writer extends AbstractMultiWriter
 
     private function addTransactions(UXML $xml, array $transactions): void
     {
-        foreach ($transactions as $transaction) {
+        foreach ($transactions as $index => $transaction) {
             if (!$transaction instanceof Flux10Transaction) {
-                continue;
+                throw new InvalidArgumentException(sprintf(
+                    'Report transaction #%s must be a %s, got %s',
+                    $index,
+                    Flux10Transaction::class,
+                    get_debug_type($transaction)
+                ));
             }
 
             $node = $xml->add('Transactions');
@@ -282,7 +393,13 @@ class Flux10Writer extends AbstractMultiWriter
             $this->addStringNode($node, 'TaxDueDateTypeCode', $transaction->getTaxDueDateTypeCode());
             $this->addRequiredStringNode($node, 'CategoryCode', $transaction->getCategoryCode(), 'Transactions/CategoryCode');
             $this->addRequiredAmountNode($node, 'TaxExclusiveAmount', $transaction->getTaxExclusiveAmount(), 'Transactions/TaxExclusiveAmount');
-            $this->addRequiredAmountNode($node, 'TaxTotal', $transaction->getTaxAmount(), 'Transactions/TaxTotal');
+
+            $node->add('TaxTotal', $this->resolveVatAmountInEuros(
+                $transaction->getVatAmountEur(),
+                $transaction->getTaxAmount(),
+                $transaction->getCurrencyCode(),
+                'Transactions/TaxTotal'
+            ));
 
             if ($transaction->getTransactionCount() !== null) {
                 $node->add('TransactionsCount', (string) $transaction->getTransactionCount());
@@ -290,27 +407,25 @@ class Flux10Writer extends AbstractMultiWriter
 
             $breakdown = $transaction->getTaxBreakdown();
             if (empty($breakdown)) {
-                $fallback = new Flux10TaxBreakdown();
-                $fallback->setRate(0);
-                $fallback->setTaxableAmount($transaction->getTaxExclusiveAmount());
-                $fallback->setTaxAmount($transaction->getTaxAmount());
-                $breakdown = [$fallback];
+                throw new ValidationException('Transactions entry has no VAT breakdown (TG-32)', 'G1.53');
             }
 
             foreach ($breakdown as $item) {
-                if (!$item instanceof Flux10TaxBreakdown) {
-                    continue;
-                }
-                $this->addTransactionTaxSubtotal($node, $item);
+                $this->addTransactionTaxSubtotal($node, $this->assertTaxBreakdown($item, 'Transactions'));
             }
         }
     }
 
     private function addTransactionPayments(UXML $xml, array $payments): void
     {
-        foreach ($payments as $payment) {
+        foreach ($payments as $index => $payment) {
             if (!$payment instanceof Flux10TransactionPayment) {
-                continue;
+                throw new InvalidArgumentException(sprintf(
+                    'Report transaction payment #%s must be a %s, got %s',
+                    $index,
+                    Flux10TransactionPayment::class,
+                    get_debug_type($payment)
+                ));
             }
 
             $node = $xml->add('Transactions');
@@ -319,13 +434,14 @@ class Flux10Writer extends AbstractMultiWriter
 
             $amountsByRate = $payment->getAmountsByRate();
             if (empty($amountsByRate)) {
-                throw new InvalidArgumentException('PaymentsReport/Transactions/Payment/SubTotals must have at least one item');
+                throw new ValidationException(
+                    'Transaction payment has no amount broken down by VAT rate (TG-39)',
+                    'G1.53'
+                );
             }
 
             foreach ($amountsByRate as $amountByRate) {
-                if (!$amountByRate instanceof Flux10AmountByRate) {
-                    continue;
-                }
+                $amountByRate = $this->assertAmountByRate($amountByRate, 'PaymentsReport/Transactions/Payment/SubTotals');
                 $subTotalNode = $paymentNode->add('SubTotals');
                 $this->addRequiredAmountNode($subTotalNode, 'TaxPercent', $amountByRate->getRate(), 'PaymentsReport/Transactions/Payment/SubTotals/TaxPercent');
                 $this->addStringNode($subTotalNode, 'CurrencyCode', $payment->getCurrencyCode());
@@ -356,16 +472,12 @@ class Flux10Writer extends AbstractMultiWriter
     {
         $report = new Flux10Report();
         $report->setTransmissionType(self::DEFAULT_TRANSMISSION_TYPE);
+        $report->setSender($this->sender);
 
         $issueDateBounds = $this->findIssueDateBounds($invoices);
         $reportId = $this->buildReportId($invoices, $issueDateBounds);
         if ($reportId !== null) {
             $report->setReportId($reportId);
-        }
-
-        $sender = $this->resolveSender($invoices);
-        if ($sender !== null) {
-            $report->setSender($this->buildFlux10Party($sender));
         }
 
         $issuer = $this->resolveIssuer($invoices);
@@ -387,19 +499,6 @@ class Flux10Writer extends AbstractMultiWriter
         }
 
         return $report;
-    }
-
-    private function buildFlux10Party(Party $party): Flux10Party
-    {
-        $fluxParty = new Flux10Party();
-        $identifier = $this->getPartyIdentifier($party);
-        $fluxParty->setSiren($identifier?->getValue());
-        $fluxParty->setSchemeId($identifier?->getScheme());
-        $fluxParty->setName($party->getName() ?? $party->getTradingName());
-        $fluxParty->setVatId($party->getVatNumber());
-        $fluxParty->setUriUniversalCommunication($this->buildUniversalCommunicationUri($party->getElectronicAddress()));
-
-        return $fluxParty;
     }
 
     private function buildFlux10Issuer(Party $party, Flux10IssuerRoleCode $roleCode): Flux10Issuer
@@ -441,31 +540,40 @@ class Flux10Writer extends AbstractMultiWriter
 
     private function buildFlux10Invoice(Invoice $invoice): Flux10Invoice
     {
+        $businessProcess = $invoice->getBusinessProcess();
+        if (!in_array($businessProcess, self::BUSINESS_PROCESS_CODES, true)) {
+            throw new ValidationException(sprintf(
+                'Invoice "%s" carries "%s" as business process; Flux 10 expects an invoicing framework code (%s). ' .
+                'Presets set their own specification URN here, so it must be overridden with setBusinessProcess().',
+                $invoice->getNumber() ?? '',
+                $businessProcess ?? '',
+                implode(', ', self::BUSINESS_PROCESS_CODES)
+            ), 'G1.02');
+        }
+
         $fluxInvoice = new Flux10Invoice();
         $fluxInvoice->setInvoiceId($invoice->getNumber());
         $fluxInvoice->setIssueDate($invoice->getIssueDate());
         $fluxInvoice->setTypeCode((string) $invoice->getType());
         $fluxInvoice->setCurrencyCode($invoice->getCurrency());
         $fluxInvoice->setDueDate($invoice->getDueDate());
-        $fluxInvoice->setBusinessProcessId($invoice->getBusinessProcess() ?? 'UNKNOWN');
-        $fluxInvoice->setBusinessProcessTypeId($invoice->getSpecification() ?? 'UNKNOWN');
+        $fluxInvoice->setBusinessProcessId($businessProcess);
+        $fluxInvoice->setBusinessProcessTypeId(self::EREPORTING_PROFILE);
 
         $seller = $invoice->getSeller();
         $buyer = $invoice->getBuyer();
-        $sellerCountry = $this->getPartyCountry($seller);
-        $buyerCountry = $this->getPartyCountry($buyer);
 
-        $fluxInvoice->setSellerCountry($sellerCountry);
-        $fluxInvoice->setBuyerCountry($buyerCountry);
+        $fluxInvoice->setSellerCountry($this->getPartyCountry($seller));
+        $fluxInvoice->setBuyerCountry($this->getPartyCountry($buyer));
 
         $sellerIdentifier = $this->getPartyIdentifier($seller);
         $buyerIdentifier = $this->getPartyIdentifier($buyer);
         $fluxInvoice->setSellerId($sellerIdentifier?->getValue() ?? ($seller?->getVatNumber()));
-        $fluxInvoice->setSellerSchemeId($sellerIdentifier?->getScheme() ?? ($seller?->getVatNumber() ? 'VAT' : null));
+        $fluxInvoice->setSellerSchemeId($sellerIdentifier?->getScheme());
         $fluxInvoice->setSellerVatId($seller?->getVatNumber());
 
         $fluxInvoice->setBuyerId($buyerIdentifier?->getValue() ?? ($buyer?->getVatNumber()));
-        $fluxInvoice->setBuyerSchemeId($buyerIdentifier?->getScheme() ?? ($buyer?->getVatNumber() ? 'VAT' : null));
+        $fluxInvoice->setBuyerSchemeId($buyerIdentifier?->getScheme());
         $fluxInvoice->setBuyerVatId($buyer?->getVatNumber());
 
         $totals = $invoice->getTotals();
@@ -490,26 +598,6 @@ class Flux10Writer extends AbstractMultiWriter
         $fluxItem->setTaxAmount($item->taxAmount);
 
         return $fluxItem;
-    }
-
-    private function resolveSender(array $invoices): ?Party
-    {
-        foreach ($invoices as $invoice) {
-            if (!$invoice instanceof Invoice) {
-                continue;
-            }
-            $reportingParty = $this->getReportingParty($invoice);
-            if ($reportingParty !== null) {
-                return $reportingParty;
-            }
-        }
-
-        $firstInvoice = $invoices[0] ?? null;
-        if ($firstInvoice instanceof Invoice) {
-            return $firstInvoice->getSeller() ?? $firstInvoice->getBuyer();
-        }
-
-        return null;
     }
 
     private function resolveIssuer(array $invoices): ?array
@@ -631,6 +719,67 @@ class Flux10Writer extends AbstractMultiWriter
         return null;
     }
 
+    /**
+     * Resolve the VAT total in euros — TT-202/TT-83, G6.23.
+     *
+     * Falls back to the document total only when the document is already in euros:
+     * converting is a business decision the library must not take silently.
+     */
+    private function resolveVatAmountInEuros(
+        float|string|null $vatAmountEur,
+        float|string|null $taxAmount,
+        ?string $currencyCode,
+        string $context
+    ): string {
+        $formatted = $this->formatAmount($vatAmountEur);
+        if ($formatted !== null) {
+            return $formatted;
+        }
+
+        if ($currencyCode === self::VAT_CURRENCY) {
+            $formatted = $this->formatAmount($taxAmount);
+            if ($formatted !== null) {
+                return $formatted;
+            }
+            throw new InvalidArgumentException("Missing required amount for {$context}");
+        }
+
+        throw new ValidationException(sprintf(
+            '%s must be expressed in EUR but the document currency is "%s". Set the converted amount ' .
+            'explicitly with setVatAmountEur().',
+            $context,
+            $currencyCode ?? ''
+        ), 'G6.23');
+    }
+
+    private function assertTaxBreakdown(mixed $item, string $context): Flux10TaxBreakdown
+    {
+        if (!$item instanceof Flux10TaxBreakdown) {
+            throw new InvalidArgumentException(sprintf(
+                '%s VAT breakdown item must be a %s, got %s',
+                $context,
+                Flux10TaxBreakdown::class,
+                get_debug_type($item)
+            ));
+        }
+
+        return $item;
+    }
+
+    private function assertAmountByRate(mixed $item, string $context): Flux10AmountByRate
+    {
+        if (!$item instanceof Flux10AmountByRate) {
+            throw new InvalidArgumentException(sprintf(
+                '%s item must be a %s, got %s',
+                $context,
+                Flux10AmountByRate::class,
+                get_debug_type($item)
+            ));
+        }
+
+        return $item;
+    }
+
     private function addRequiredStringNode(UXML $node, string $name, ?string $value, string $context): void
     {
         if ($value === null || $value === '') {
@@ -639,12 +788,12 @@ class Flux10Writer extends AbstractMultiWriter
         $node->add($name, $value);
     }
 
-    private function addSchemeValueNode(UXML $node, string $name, ?string $value, ?string $schemeId): void
+    private function addSchemeValueNode(UXML $node, string $name, ?string $value, ?string $schemeId, string $context): void
     {
         if ($value === null || $value === '') {
             return;
         }
-        $node->add($name, $value, ['schemeId' => $schemeId ?? 'UNKNOWN']);
+        $this->addRequiredSchemeValueNode($node, $name, $value, $schemeId, $context);
     }
 
     private function addRequiredSchemeValueNode(UXML $node, string $name, ?string $value, ?string $schemeId, string $context): void
@@ -652,7 +801,13 @@ class Flux10Writer extends AbstractMultiWriter
         if ($value === null || $value === '') {
             throw new InvalidArgumentException("Missing required value for {$context}");
         }
-        $node->add($name, $value, ['schemeId' => $schemeId ?? 'UNKNOWN']);
+        if ($schemeId === null || $schemeId === '') {
+            throw new ValidationException(
+                "Missing identifier scheme for {$context}: expected an ISO 6523 (ICD) code",
+                'G2.19'
+            );
+        }
+        $node->add($name, $value, ['schemeId' => $schemeId]);
     }
 
     private function addRequiredDateNode(UXML $node, string $name, $date, string $context): void
@@ -711,17 +866,58 @@ class Flux10Writer extends AbstractMultiWriter
         $node->add($name, $formatted);
     }
 
+    /**
+     * Format a date as `AAAAMMJJ` — G1.09.
+     *
+     * A string is accepted only if it already is a Flux 10 date or an ISO one, which is
+     * what UBL-shaped callers hold; anything else is refused rather than passed through.
+     */
     private function formatDate($date): ?string
     {
-        if ($date instanceof DateTime) {
+        if ($date instanceof DateTimeInterface) {
             return $date->format(self::DATE_FORMAT);
         }
 
         if (is_string($date) && $date !== '') {
-            return $date;
+            if (preg_match('/^\d{8}$/', $date) === 1) {
+                return $date;
+            }
+
+            $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+            if ($parsed !== false) {
+                return $parsed->format(self::DATE_FORMAT);
+            }
+
+            throw new ValidationException(
+                sprintf('Cannot read "%s" as a Flux 10 date, expected AAAAMMJJ', $date),
+                'G1.09'
+            );
         }
 
         return null;
+    }
+
+    /**
+     * Format the transmission timestamp as `AAAAMMJJHHMMSS` — TT-3, G7.53.
+     */
+    private function formatDateTime($value): string
+    {
+        if ($value instanceof DateTimeInterface) {
+            return $value->format(self::DATE_TIME_FORMAT);
+        }
+
+        if (is_string($value) && $value !== '') {
+            if (preg_match('/^\d{14}$/', $value) === 1) {
+                return $value;
+            }
+
+            throw new ValidationException(
+                sprintf('Cannot read "%s" as a Flux 10 timestamp, expected AAAAMMJJHHMMSS', $value),
+                'G7.53'
+            );
+        }
+
+        return (new DateTime('now', new DateTimeZone(self::TIMEZONE)))->format(self::DATE_TIME_FORMAT);
     }
 
     private function formatAmount($amount): ?string

@@ -34,10 +34,20 @@ class Transaction
     protected float|string|null $taxExclusiveAmount = null;
 
     /**
-     * VAT amount.
+     * VAT amount, in the transactions currency.
      * @var float|string|null
      */
     protected float|string|null $taxAmount = null;
+
+    /**
+     * Total VAT amount converted to euros (TT-83).
+     *
+     * Required when the transactions currency is not EUR (G6.23). Conversion is a
+     * business decision and is never performed by the library.
+     *
+     * @var float|string|null
+     */
+    protected float|string|null $vatAmountEur = null;
 
     /**
      * VAT breakdown lines.
@@ -145,6 +155,27 @@ class Transaction
     public function setTaxAmount(float|string|null $taxAmount): self
     {
         $this->taxAmount = $taxAmount;
+        return $this;
+    }
+
+    /**
+     * Get total VAT amount in euros (TT-83).
+     */
+    public function getVatAmountEur(): float|string|null
+    {
+        return $this->vatAmountEur;
+    }
+
+    /**
+     * Set total VAT amount in euros (TT-83, G6.23).
+     *
+     * Required when the transactions currency is not EUR.
+     *
+     * @param float|string|null $vatAmountEur
+     */
+    public function setVatAmountEur(float|string|null $vatAmountEur): self
+    {
+        $this->vatAmountEur = $vatAmountEur;
         return $this;
     }
 
