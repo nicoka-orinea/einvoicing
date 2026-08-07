@@ -805,23 +805,22 @@ class CiiWriter extends AbstractWriter
 
     private function addLegalOrganization(UXML $parent, Party $party): void
     {
-        $organizationIdentifier = null;
-        foreach ($party->getIdentifiers() as $identifier) {
-            if ($identifier->getScheme() === '0002') {
-                $organizationIdentifier = $identifier;
-                break;
+        $identifier = $party->getCompanyId();
+        if ($identifier === null) {
+            foreach ($party->getIdentifiers() as $candidate) {
+                if ($candidate->getScheme() === '0002') {
+                    $identifier = $candidate;
+                    break;
+                }
             }
         }
-
-        if ($party->getCompanyId()?->getScheme() === '0002') {
-            $org = $parent->add("ram:SpecifiedLegalOrganization");
-            $org->add("ram:ID", $party->getCompanyId()->getValue(), [
-                "schemeID" => "0002"
-            ]);
-            return;
+        if ($identifier === null) {
+            return; // BT-30 is optional under EN 16931
         }
-
-        throw new \Exception("Missing legal organization identifier (0002)");
+        $scheme = $identifier->getScheme();
+        $attrs = ($scheme !== null) ? ["schemeID" => $scheme] : [];
+        $parent->add("ram:SpecifiedLegalOrganization")
+            ->add("ram:ID", $identifier->getValue(), $attrs);
     }
 
     private function addPostalAddress(UXML $parent, Party $party): void
