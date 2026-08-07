@@ -329,7 +329,7 @@ class Invoice {
     protected $dueDate = null;
     protected $taxPointDate = null;
     protected $vatPointDateCode = null;
-    /** @var string[] */
+    /** @var DocumentNote[] */
     protected $notes = [];
     protected $buyerReference = null;
     protected $purchaseOrderReference = null;

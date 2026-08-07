@@ -28,6 +28,11 @@ class CdarReader
      */
     public function import(string $document): CrossDomainAcknowledgementAndResponse
     {
+        // A DOCTYPE serves no purpose here and is an entity expansion vector
+        if (preg_match('/<!DOCTYPE/i', $document) === 1) {
+            throw new InvalidArgumentException("XML documents with a DOCTYPE declaration are not accepted");
+        }
+
         $cdar = new CrossDomainAcknowledgementAndResponse();
         $xml = UXML::fromString($document);
 
@@ -304,17 +309,34 @@ class CdarReader
         return $party;
     }
 
+    /**
+     * Parse a date value, rejecting anything the declared format cannot express
+     * @throws InvalidArgumentException if the value is not a valid date
+     */
     private function parseDateTime(UXML $node): DateTime
     {
         $format = $this->attr($node, 'format');
-        $value = $node->asText();
-        if ($format === '102') {
-            return DateTime::createFromFormat('Ymd', $value)->setTime(0, 0, 0);
+        $value = trim($node->asText());
+
+        // The leading "!" resets the time fields to 00:00:00
+        [$result, $canonical] = match ($format) {
+            '102' => [DateTime::createFromFormat('!Ymd', $value), 'Ymd'],
+            '204' => [DateTime::createFromFormat('YmdHis', $value), 'YmdHis'],
+            default => [null, null],
+        };
+        if ($result === null) {
+            try {
+                return new DateTime($value);
+            } catch (\Exception $e) {
+                throw new InvalidArgumentException("Invalid date value: '$value'", 0, $e);
+            }
         }
-        if ($format === '204') {
-            return DateTime::createFromFormat('YmdHis', $value);
+        // createFromFormat is lenient and rolls a month 13 or a day 99 over, so
+        // the result has to render back to the value it came from
+        if ($result === false || $canonical === null || $result->format($canonical) !== $value) {
+            throw new InvalidArgumentException("Invalid date value: '$value' for format $format");
         }
-        return new DateTime($value);
+        return $result;
     }
 
     private function parseIndicator(string $value): bool

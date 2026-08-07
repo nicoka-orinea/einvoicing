@@ -3,11 +3,11 @@
 namespace Einvoicing\Writers;
 
 use Einvoicing\AllowanceOrCharge;
+use Einvoicing\Exceptions\ExportException;
 use Einvoicing\Invoice;
 use Einvoicing\InvoiceLine;
 use Einvoicing\Models\InvoiceTotals;
 use Einvoicing\Party;
-use InvalidArgumentException;
 use UXML\UXML;
 
 /**
@@ -46,7 +46,7 @@ class CiiWriter extends AbstractWriter
 
     /**
      * Export an invoice to a CII XML document.
-     * @throws InvalidArgumentException if a line has a non-positive base quantity
+     * @throws ExportException if a line has a non-positive base quantity
      */
     public function export(Invoice $invoice): string
     {
@@ -117,7 +117,7 @@ class CiiWriter extends AbstractWriter
     /* ================= LINE ITEMS ================= */
 
     /**
-     * @throws InvalidArgumentException if a line has a non-positive base quantity
+     * @throws ExportException if a line has a non-positive base quantity
      */
     private function addLineItems(UXML $parent, Invoice $invoice): void
     {
@@ -173,7 +173,7 @@ class CiiWriter extends AbstractWriter
     /**
      * Children of LineTradeAgreementType, in schema order:
      * BuyerOrderReferencedDocument, GrossPriceProductTradePrice, NetPriceProductTradePrice
-     * @throws InvalidArgumentException if the base quantity is not positive
+     * @throws ExportException if the base quantity is not positive
      */
     private function addLineAgreement(UXML $lineItem, InvoiceLine $line): void
     {
@@ -186,7 +186,7 @@ class CiiWriter extends AbstractWriter
 
         $baseQty = (float) $line->getBaseQuantity();
         if ($baseQty <= 0) {
-            throw new InvalidArgumentException("Line base quantity must be positive");
+            throw new ExportException("Line base quantity must be positive");
         }
         // BT-146: the net price already applies to BT-149 units, so no division
         $netUnitPrice = (float) $line->getPrice();

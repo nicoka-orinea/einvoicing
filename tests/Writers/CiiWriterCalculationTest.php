@@ -3,6 +3,7 @@ namespace Tests\Writers;
 
 use DateTime;
 use Einvoicing\AllowanceOrCharge;
+use Einvoicing\Exceptions\ExportException;
 use Einvoicing\Delivery;
 use Einvoicing\Identifier;
 use Einvoicing\Invoice;
@@ -12,7 +13,6 @@ use Einvoicing\Party;
 use Einvoicing\Payments\Payment;
 use Einvoicing\Payments\Transfer;
 use Einvoicing\Writers\CiiWriter;
-use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use Tests\ValidatesAgainstXsd;
 use UXML\UXML;
@@ -123,7 +123,7 @@ final class CiiWriterCalculationTest extends TestCase {
         $invoice = $this->getInvoice()
             ->addLine((new InvoiceLine)->setName('Line')->setPrice(10)->setBaseQuantity(0)->setQuantity(1)->setVatCategory('S')->setVatRate(20));
 
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(ExportException::class);
         (new CiiWriter())->export($invoice);
     }
 

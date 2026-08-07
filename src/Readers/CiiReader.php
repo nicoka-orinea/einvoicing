@@ -30,6 +30,11 @@ class CiiReader extends AbstractReader
      */
     public function import(string $document): Invoice
     {
+        // A DOCTYPE serves no purpose here and is an entity expansion vector
+        if (preg_match('/<!DOCTYPE/i', $document) === 1) {
+            throw new InvalidArgumentException("XML documents with a DOCTYPE declaration are not accepted");
+        }
+
         // Load XML document
         $xml = UXML::fromString($document);
 
@@ -357,14 +362,34 @@ class CiiReader extends AbstractReader
         }
     }
 
+    /**
+     * Parse a date value, rejecting anything the declared format cannot express
+     * @throws InvalidArgumentException if the value is not a valid date
+     */
     private function parseDateTime(UXML $node): DateTime
     {
-        $format = $node->element()->getAttribute('format');
-        $value = $node->asText();
-        if ($format === '102') {
-            return DateTime::createFromFormat('Ymd', $value)->setTime(0, 0, 0);
+        $element = $node->element();
+        $format = $element->hasAttribute('format') ? $element->getAttribute('format') : null;
+        $value = trim($node->asText());
+
+        // The leading "!" resets the time fields to 00:00:00
+        $result = match ($format) {
+            '102' => DateTime::createFromFormat('!Ymd', $value),
+            default => null,
+        };
+        if ($result === null) {
+            try {
+                return new DateTime($value);
+            } catch (\Exception $e) {
+                throw new InvalidArgumentException("Invalid date value: '$value'", 0, $e);
+            }
         }
-        return new DateTime($value);
+        // createFromFormat is lenient and rolls a month 13 or a day 99 over, so
+        // the result has to render back to the value it came from
+        if ($result === false || $result->format('Ymd') !== $value) {
+            throw new InvalidArgumentException("Invalid date value: '$value' for format $format");
+        }
+        return $result;
     }
 
     private function parsePartyNode(UXML $xml): Party
