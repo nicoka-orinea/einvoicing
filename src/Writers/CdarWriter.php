@@ -38,8 +38,8 @@ class CdarWriter
         if ($cdar->getExchangedDocument() !== null) {
             $this->addExchangedDocument($xml, $cdar->getExchangedDocument());
         }
-        if ($cdar->getAcknowledgementDocument() !== null) {
-            $this->addAcknowledgementDocument($xml, $cdar->getAcknowledgementDocument());
+        foreach ($cdar->getAcknowledgementDocuments() as $acknowledgementDocument) {
+            $this->addAcknowledgementDocument($xml, $acknowledgementDocument);
         }
 
         return $xml->asXML();
@@ -187,8 +187,10 @@ class CdarWriter
             $node->add("ram:RequestedAction", $status->getRequestedAction());
         }
         $node->add("ram:SequenceNumeric", (string) ($status->getSequenceNumeric() ?? 1));
+        // @phan-suppress-next-line PhanDeprecatedFunction the status level code is a fallback
+        $fallbackContentCode = $status->getIncludedNoteContentCode();
         foreach ($status->getIncludedNotes() as $note) {
-            $this->addIncludedNote($node->add("ram:IncludedNote"), $status->getIncludedNoteContentCode(), $note);
+            $this->addIncludedNote($node->add("ram:IncludedNote"), $fallbackContentCode, $note);
         }
         foreach ($status->getCharacteristics() as $characteristic) {
             $this->addSpecifiedDocumentCharacteristic($node->add("ram:SpecifiedDocumentCharacteristic"), $characteristic);
@@ -232,10 +234,13 @@ class CdarWriter
     }
 
     /**
-     * @param array{content: string, languageId: ?string} $note
+     * Children of NoteType, in schema order: ContentCode, Content, SubjectCode
+     * @param array{content: string, languageId: ?string, contentCode: ?string, subjectCode: ?string} $note
+     * @param string|null $fallbackContentCode Deprecated status level content code
      */
-    private function addIncludedNote(UXML $node, ?string $contentCode, array $note): void
+    private function addIncludedNote(UXML $node, ?string $fallbackContentCode, array $note): void
     {
+        $contentCode = $note['contentCode'] ?? $fallbackContentCode;
         if ($contentCode !== null) {
             $node->add("ram:ContentCode", $contentCode);
         }
@@ -244,6 +249,10 @@ class CdarWriter
             $attributes['languageID'] = $note['languageId'];
         }
         $node->add("ram:Content", $note['content'], $attributes);
+        $subjectCode = $note['subjectCode'] ?? null;
+        if ($subjectCode !== null) {
+            $node->add("ram:SubjectCode", $subjectCode);
+        }
     }
 
     private function addValueAmount(UXML $node, ValueAmount $amount): void
@@ -317,15 +326,23 @@ class CdarWriter
         return $value;
     }
 
-    private function processConditionLabelForXml(string $code, ?string $fallback): ?string
+    /**
+     * Resolve the label to write next to a process condition code.
+     * An explicit label set on the model always wins: it is only derived from
+     * the code when none was provided.
+     */
+    private function processConditionLabelForXml(string $code, ?string $explicitLabel): ?string
     {
+        if ($explicitLabel !== null) {
+            return $explicitLabel;
+        }
         if (!is_numeric($code)) {
-            return $fallback;
+            return null;
         }
         try {
             return ProcessConditionCode::from((int) $code)->xmlLabel();
         } catch (\ValueError $error) {
-            return $fallback;
+            return null;
         }
     }
 }

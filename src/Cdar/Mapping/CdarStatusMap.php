@@ -15,18 +15,11 @@ class CdarStatusMap
      */
     public static function all(): array
     {
-        return [
-            ProcessConditionCode::SUBMITTED->value => self::define(ProcessConditionCode::SUBMITTED),
-            ProcessConditionCode::EMITTED_BY_PLATFORM->value => self::define(ProcessConditionCode::EMITTED_BY_PLATFORM),
-            ProcessConditionCode::RECEIVED->value => self::define(ProcessConditionCode::RECEIVED),
-            ProcessConditionCode::MADE_AVAILABLE->value => self::define(ProcessConditionCode::MADE_AVAILABLE),
-            ProcessConditionCode::TAKEN_IN_CHARGE->value => self::define(ProcessConditionCode::TAKEN_IN_CHARGE),
-            ProcessConditionCode::APPROVED->value => self::define(ProcessConditionCode::APPROVED),
-            ProcessConditionCode::IN_DISPUTE->value => self::define(ProcessConditionCode::IN_DISPUTE),
-            ProcessConditionCode::PAYMENT_TRANSMITTED->value => self::define(ProcessConditionCode::PAYMENT_TRANSMITTED),
-            ProcessConditionCode::PAID->value => self::define(ProcessConditionCode::PAID),
-            ProcessConditionCode::REJECTED->value => self::define(ProcessConditionCode::REJECTED),
-        ];
+        $definitions = [];
+        foreach (ProcessConditionCode::cases() as $case) {
+            $definitions[$case->value] = self::define($case);
+        }
+        return $definitions;
     }
 
     /**

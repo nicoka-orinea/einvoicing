@@ -17,7 +17,7 @@ class SpecifiedDocumentStatus
     private ?string $requestedAction = null;
     private ?int $sequenceNumeric = null;
     private ?string $includedNoteContentCode = null;
-    /** @var array<int, array{content: string, languageId: ?string}> */
+    /** @var array<int, array{content: string, languageId: ?string, contentCode: ?string, subjectCode: ?string}> */
     private array $includedNotes = [];
     /** @var SpecifiedDocumentCharacteristic[] */
     private array $characteristics = [];
@@ -174,11 +174,18 @@ class SpecifiedDocumentStatus
         return $this;
     }
 
+    /**
+     * @deprecated Set the content code on each note with addIncludedNote()
+     */
     public function getIncludedNoteContentCode(): ?string
     {
         return $this->includedNoteContentCode;
     }
 
+    /**
+     * Set a content code applied to every note that has none of its own.
+     * @deprecated Set the content code on each note with addIncludedNote()
+     */
     public function setIncludedNoteContentCode(?string $includedNoteContentCode): self
     {
         $this->includedNoteContentCode = $includedNoteContentCode;
@@ -186,7 +193,7 @@ class SpecifiedDocumentStatus
     }
 
     /**
-     * @return array<int, array{content: string, languageId: ?string}>
+     * @return array<int, array{content: string, languageId: ?string, contentCode: ?string, subjectCode: ?string}>
      */
     public function getIncludedNotes(): array
     {
@@ -194,7 +201,7 @@ class SpecifiedDocumentStatus
     }
 
     /**
-     * @param array<int, array{content: string, languageId?: ?string}> $includedNotes
+     * @param array<int, array{content: string, languageId?: ?string, contentCode?: ?string, subjectCode?: ?string}> $includedNotes
      */
     public function setIncludedNotes(array $includedNotes): self
     {
@@ -203,13 +210,26 @@ class SpecifiedDocumentStatus
             if (!isset($note['content'])) {
                 continue;
             }
-            $this->addIncludedNote((string) $note['content'], $note['languageId'] ?? null);
+            $this->addIncludedNote(
+                (string) $note['content'],
+                $note['languageId'] ?? null,
+                $note['contentCode'] ?? null,
+                $note['subjectCode'] ?? null
+            );
         }
         return $this;
     }
 
-    public function addIncludedNote(string $content, ?string $languageId = null): self
-    {
+    /**
+     * Add a note, with its own content code and subject code when the document
+     * carries them.
+     */
+    public function addIncludedNote(
+        string $content,
+        ?string $languageId = null,
+        ?string $contentCode = null,
+        ?string $subjectCode = null
+    ): self {
         $content = trim($content);
         if ($content === '') {
             return $this;
@@ -217,6 +237,8 @@ class SpecifiedDocumentStatus
         $this->includedNotes[] = [
             'content' => $content,
             'languageId' => $languageId,
+            'contentCode' => $contentCode,
+            'subjectCode' => $subjectCode,
         ];
         return $this;
     }
