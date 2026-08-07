@@ -9,7 +9,7 @@ use Einvoicing\Flux10\AmountByRate;
 use Einvoicing\Flux10\Invoice as Flux10Invoice;
 use Einvoicing\Flux10\InvoicePayment;
 use Einvoicing\Flux10\Issuer;
-use Einvoicing\Flux10\IssuerRoleCode;
+use Einvoicing\Flux10\Enums\IssuerRoleCode;
 use Einvoicing\Flux10\Sender;
 use Einvoicing\Flux10\Period;
 use Einvoicing\Flux10\Report;
@@ -86,30 +86,27 @@ final class Flux10ConformanceTest extends TestCase
     }
 
     /**
-     * The path taken by callers holding EN 16931 invoices, which derives the whole
-     * transmission envelope by inference.
+     * The path taken by callers holding EN 16931 invoices.
      *
-     * Two gaps remain by design, both scheduled: the ICD scheme is not derived from the
-     * country yet, and the period is inferred from issue dates so a single invoice yields
-     * a degenerate one. This asserts the exact remaining set so a regression adds an
-     * entry, and closing either gap forces this list to be updated rather than silently
-     * staying green.
+     * The envelope that cannot be inferred from an invoice — the emitting platform and
+     * the declared period — is supplied explicitly; the rest is derived, including the
+     * ICD scheme, which is resolved from the country rather than copied from the source
+     * identifier.
      */
-    public function testDerivedReportFromEn16931InvoiceHasOnlyTheKnownRemainingGaps(): void
+    public function testDerivedReportFromEn16931Invoice(): void
     {
         $writer = (new Flux10Writer())
-            ->setSender((new Sender())->setMatricule('PA01')->setName('Accredited Platform SA'));
+            ->setSender((new Sender())->setMatricule('PA01')->setName('Accredited Platform SA'))
+            ->setPeriod(
+                (new Period())
+                    ->setStartDate(new DateTime('2026-01-01'))
+                    ->setEndDate(new DateTime('2026-01-31'))
+            );
 
         $xml = $writer->export($this->en16931Invoice());
 
         $this->assertMatchesGoldenFixture($xml, '10.1-derived-from-invoice.xml');
-        $this->assertSame(
-            [
-                'Report/TransactionsReport/Invoice/Buyer/CompanyId/@schemeId = "VAT" — expected one of 0002, 0223, 0227, 0228, 0229 (G2.19)',
-                'Report/TransactionsReport/ReportPeriod: EndDate "20260110" is not after StartDate "20260110" (G6.25)',
-            ],
-            $this->findFlux10Violations($xml)
-        );
+        $this->assertFlux10Semantics($xml);
     }
 
     /**

@@ -3,12 +3,16 @@
 namespace Einvoicing\Flux10;
 
 use DateTimeInterface;
+use Einvoicing\Flux10\Enums\TransmissionTypeCode;
+use Einvoicing\Flux10\Traits\ReportValidationTrait;
 use OutOfBoundsException;
 use function array_splice;
 use function count;
 
 class Report
 {
+    use ReportValidationTrait;
+
     /**
      * Report identifier.
      * @var string|null
@@ -22,10 +26,10 @@ class Report
     protected $reportName = null;
 
     /**
-     * Transmission type (IN, RE).
-     * @var string
+     * Transmission type (TT-4, G8.01).
+     * @var TransmissionTypeCode
      */
-    protected $transmissionType = 'IN';
+    protected TransmissionTypeCode $transmissionType = TransmissionTypeCode::INITIAL;
 
     /**
      * Transmission creation timestamp (TT-3).
@@ -115,19 +119,23 @@ class Report
     }
 
     /**
-     * Get transmission type.
+     * Get transmission type (TT-4).
      */
-    public function getTransmissionType(): string
+    public function getTransmissionType(): TransmissionTypeCode
     {
         return $this->transmissionType;
     }
 
     /**
-     * Set transmission type.
+     * Set transmission type (TT-4, G8.01).
+     *
+     * @param TransmissionTypeCode|string $transmissionType `IN` or `RE` when a string
      */
-    public function setTransmissionType(string $transmissionType): self
+    public function setTransmissionType(TransmissionTypeCode|string $transmissionType): self
     {
-        $this->transmissionType = $transmissionType;
+        $this->transmissionType = is_string($transmissionType)
+            ? TransmissionTypeCode::from($transmissionType)
+            : $transmissionType;
         return $this;
     }
 
