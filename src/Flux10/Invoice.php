@@ -3,6 +3,8 @@
 namespace Einvoicing\Flux10;
 
 use DateTime;
+use Einvoicing\Flux10\Enums\BusinessProcessCode;
+use Einvoicing\Flux10\Enums\IcdSchemeId;
 use OutOfBoundsException;
 use function array_splice;
 use function count;
@@ -40,10 +42,10 @@ class Invoice
     protected $taxDueDateTypeCode = null;
 
     /**
-     * Business process ID (XSD Invoice/BusinessProcess/ID).
-     * @var string|null
+     * Invoicing framework (TT-28, G1.02).
+     * @var BusinessProcessCode|null
      */
-    protected $businessProcessId = null;
+    protected ?BusinessProcessCode $businessProcessId = null;
 
     /**
      * Business process type ID (XSD Invoice/BusinessProcess/TypeID).
@@ -64,10 +66,10 @@ class Invoice
     protected $sellerId = null;
 
     /**
-     * Seller identifier scheme (XSD attribute `schemeId`).
-     * @var string|null
+     * Seller identifier scheme (TT-33-1/TT-37, G2.19).
+     * @var IcdSchemeId|null
      */
-    protected $sellerSchemeId = null;
+    protected ?IcdSchemeId $sellerSchemeId = null;
 
     /**
      * Seller country code.
@@ -88,10 +90,10 @@ class Invoice
     protected $buyerId = null;
 
     /**
-     * Buyer identifier scheme (XSD attribute `schemeId`).
-     * @var string|null
+     * Buyer identifier scheme (TT-33-1/TT-37, G2.19).
+     * @var IcdSchemeId|null
      */
-    protected $buyerSchemeId = null;
+    protected ?IcdSchemeId $buyerSchemeId = null;
 
     /**
      * Buyer country code.
@@ -220,19 +222,23 @@ class Invoice
     }
 
     /**
-     * Get business process ID.
+     * Get invoicing framework (TT-28).
      */
-    public function getBusinessProcessId(): ?string
+    public function getBusinessProcessId(): ?BusinessProcessCode
     {
         return $this->businessProcessId;
     }
 
     /**
-     * Set business process ID.
+     * Set invoicing framework (TT-28, G1.02).
+     *
+     * @param BusinessProcessCode|string|null $businessProcessId `B1`, `S1`, `M1`, … when a string
      */
-    public function setBusinessProcessId(?string $businessProcessId): self
+    public function setBusinessProcessId(BusinessProcessCode|string|null $businessProcessId): self
     {
-        $this->businessProcessId = $businessProcessId;
+        $this->businessProcessId = is_string($businessProcessId)
+            ? BusinessProcessCode::from($businessProcessId)
+            : $businessProcessId;
         return $this;
     }
 
@@ -288,19 +294,23 @@ class Invoice
     }
 
     /**
-     * Get seller identifier scheme.
+     * Get seller identifier scheme (G2.19).
      */
-    public function getSellerSchemeId(): ?string
+    public function getSellerSchemeId(): ?IcdSchemeId
     {
         return $this->sellerSchemeId;
     }
 
     /**
-     * Set seller identifier scheme.
+     * Set seller identifier scheme (G2.19).
+     *
+     * @param IcdSchemeId|string|null $sellerSchemeId An ISO 6523 code when a string
      */
-    public function setSellerSchemeId(?string $sellerSchemeId): self
+    public function setSellerSchemeId(IcdSchemeId|string|null $sellerSchemeId): self
     {
-        $this->sellerSchemeId = $sellerSchemeId;
+        $this->sellerSchemeId = is_string($sellerSchemeId)
+            ? IcdSchemeId::from($sellerSchemeId)
+            : $sellerSchemeId;
         return $this;
     }
 
@@ -356,19 +366,23 @@ class Invoice
     }
 
     /**
-     * Get buyer identifier scheme.
+     * Get buyer identifier scheme (G2.19).
      */
-    public function getBuyerSchemeId(): ?string
+    public function getBuyerSchemeId(): ?IcdSchemeId
     {
         return $this->buyerSchemeId;
     }
 
     /**
-     * Set buyer identifier scheme.
+     * Set buyer identifier scheme (G2.19).
+     *
+     * @param IcdSchemeId|string|null $buyerSchemeId An ISO 6523 code when a string
      */
-    public function setBuyerSchemeId(?string $buyerSchemeId): self
+    public function setBuyerSchemeId(IcdSchemeId|string|null $buyerSchemeId): self
     {
-        $this->buyerSchemeId = $buyerSchemeId;
+        $this->buyerSchemeId = is_string($buyerSchemeId)
+            ? IcdSchemeId::from($buyerSchemeId)
+            : $buyerSchemeId;
         return $this;
     }
 

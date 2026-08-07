@@ -3,6 +3,7 @@
 namespace Einvoicing\Flux10;
 
 use DateTime;
+use Einvoicing\Flux10\Enums\TransactionCategoryCode;
 use OutOfBoundsException;
 use function array_splice;
 use function count;
@@ -22,10 +23,10 @@ class Transaction
     protected $currencyCode = null;
 
     /**
-     * Category code (TLB1, TPS1, TNT1, TMA1).
-     * @var string|null
+     * Transaction category (TT-81, G1.68).
+     * @var TransactionCategoryCode|null
      */
-    protected $categoryCode = null;
+    protected ?TransactionCategoryCode $categoryCode = null;
 
     /**
      * Amount without VAT.
@@ -104,19 +105,23 @@ class Transaction
     }
 
     /**
-     * Get category code.
+     * Get transaction category (TT-81).
      */
-    public function getCategoryCode(): ?string
+    public function getCategoryCode(): ?TransactionCategoryCode
     {
         return $this->categoryCode;
     }
 
     /**
-     * Set category code.
+     * Set transaction category (TT-81, G1.68).
+     *
+     * @param TransactionCategoryCode|string|null $categoryCode `TLB1`, `TPS1`, `TNT1` or `TMA1`
      */
-    public function setCategoryCode(?string $categoryCode): self
+    public function setCategoryCode(TransactionCategoryCode|string|null $categoryCode): self
     {
-        $this->categoryCode = $categoryCode;
+        $this->categoryCode = is_string($categoryCode)
+            ? TransactionCategoryCode::from($categoryCode)
+            : $categoryCode;
         return $this;
     }
 

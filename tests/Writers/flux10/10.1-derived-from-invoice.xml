@@ -22,8 +22,8 @@
   </ReportDocument>
   <TransactionsReport>
     <ReportPeriod>
-      <StartDate>20260110</StartDate>
-      <EndDate>20260110</EndDate>
+      <StartDate>20260101</StartDate>
+      <EndDate>20260131</EndDate>
     </ReportPeriod>
     <Invoice>
       <ID>INV-1</ID>
@@ -42,7 +42,7 @@
         </PostalAddress>
       </Seller>
       <Buyer>
-        <CompanyId schemeId="VAT">DE123456789</CompanyId>
+        <CompanyId schemeId="0223">DE123456789</CompanyId>
         <TaxRegistrationId qualifyingId="VAT">DE123456789</TaxRegistrationId>
         <PostalAddress>
           <CountryId>DE</CountryId>
@@ -56,6 +56,7 @@
         <TaxableAmount>1000.00</TaxableAmount>
         <TaxAmount>200.00</TaxAmount>
         <TaxCategory>
+          <Code>S</Code>
           <Percent>20.00</Percent>
         </TaxCategory>
       </TaxSubTotal>
