@@ -97,9 +97,10 @@ class InvoiceTotals {
         $totals->currency = $inv->getCurrency();
         $totals->vatCurrency = $inv->getVatCurrency();
 
-        // Process all invoice lines
+        // Process all invoice lines. BT-131 is rounded before being summed, so
+        // that BT-106 equals the sum of the amounts actually written (BR-CO-10).
         foreach ($inv->getLines() as $line) {
-            $lineNetAmount = $line->getNetAmount() ?? 0.0;
+            $lineNetAmount = $inv->round($line->getNetAmount() ?? 0.0, 'line/netAmount');
             $totals->netAmount += $lineNetAmount;
             self::updateVatMap($vatMap, $line, $lineNetAmount);
         }
@@ -107,7 +108,7 @@ class InvoiceTotals {
 
         // Process allowances
         foreach ($inv->getAllowances() as $item) {
-            $allowanceAmount = $inv->round($item->getEffectiveAmount($totals->netAmount), 'line/allowanceChargeAmount');
+            $allowanceAmount = $inv->round($item->getEffectiveAmount($totals->netAmount), 'invoice/allowancesChargesAmount');
             $totals->allowancesAmount += $allowanceAmount;
             self::updateVatMap($vatMap, $item, -$allowanceAmount);
         }
@@ -115,7 +116,7 @@ class InvoiceTotals {
 
         // Process charges
         foreach ($inv->getCharges() as $item) {
-            $chargeAmount = $inv->round($item->getEffectiveAmount($totals->netAmount), 'line/allowanceChargeAmount');
+            $chargeAmount = $inv->round($item->getEffectiveAmount($totals->netAmount), 'invoice/allowancesChargesAmount');
             $totals->chargesAmount += $chargeAmount;
             self::updateVatMap($vatMap, $item, $chargeAmount);
         }
@@ -123,8 +124,11 @@ class InvoiceTotals {
 
         // Calculate VAT amounts
         foreach ($vatMap as $item) {
-            $item->taxableAmount = $inv->round($item->taxableAmount, 'invoice/allowancesChargesAmount');
-            $item->taxAmount = $inv->round($item->taxableAmount * ($item->rate / 100), 'invoice/vatAmount');
+            $item->taxableAmount = $inv->round($item->taxableAmount, 'invoice/taxableAmount');
+            // A rateless category (such as "Not subject to VAT") carries no VAT
+            $item->taxAmount = ($item->rate === null)
+                ? 0.0
+                : $inv->round($item->taxableAmount * ($item->rate / 100), 'invoice/vatAmount');
             $totals->vatAmount += $item->taxAmount;
         }
         $totals->vatAmount = $inv->round($totals->vatAmount, 'invoice/vatAmount');
@@ -175,13 +179,15 @@ class InvoiceTotals {
             $vatMap[$key]->rate = $rate;
         }
 
-        // Update exemption reason (last item overwrites previous ones)
+        // Update exemption reason. The first item to provide one wins: silently
+        // overwriting it would hide items that disagree, which is a validation
+        // matter rather than something to resolve here.
         $exemptionReasonCode = $item->getVatExemptionReasonCode();
         $exemptionReason = $item->getVatExemptionReason();
-        if ($exemptionReasonCode !== null) {
+        if ($exemptionReasonCode !== null && $vatMap[$key]->exemptionReasonCode === null) {
             $vatMap[$key]->exemptionReasonCode = $exemptionReasonCode;
         }
-        if ($exemptionReason !== null) {
+        if ($exemptionReason !== null && $vatMap[$key]->exemptionReason === null) {
             $vatMap[$key]->exemptionReason = $exemptionReason;
         }
 
