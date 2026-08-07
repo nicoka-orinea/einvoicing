@@ -2,6 +2,7 @@
 
 namespace Einvoicing\Flux10;
 
+use DateTimeInterface;
 use OutOfBoundsException;
 use function array_splice;
 use function count;
@@ -27,8 +28,19 @@ class Report
     protected $transmissionType = 'IN';
 
     /**
-     * Sender party.
-     * @var Party|null
+     * Transmission creation timestamp (TT-3).
+     *
+     * Left null, the writer stamps the export time. Set it explicitly to replay a
+     * transmission or to satisfy G7.43, which requires this timestamp to fall after the
+     * end of the declared period.
+     *
+     * @var DateTimeInterface|string|null
+     */
+    protected DateTimeInterface|string|null $issueDateTime = null;
+
+    /**
+     * Emitting accredited platform (TG-3).
+     * @var Sender|null
      */
     protected $sender = null;
 
@@ -120,17 +132,36 @@ class Report
     }
 
     /**
-     * Get sender party.
+     * Get transmission creation timestamp (TT-3).
      */
-    public function getSender(): ?Party
+    public function getIssueDateTime(): DateTimeInterface|string|null
+    {
+        return $this->issueDateTime;
+    }
+
+    /**
+     * Set transmission creation timestamp (TT-3).
+     *
+     * @param DateTimeInterface|string|null $issueDateTime `AAAAMMJJHHMMSS` when a string
+     */
+    public function setIssueDateTime(DateTimeInterface|string|null $issueDateTime): self
+    {
+        $this->issueDateTime = $issueDateTime;
+        return $this;
+    }
+
+    /**
+     * Get emitting accredited platform (TG-3).
+     */
+    public function getSender(): ?Sender
     {
         return $this->sender;
     }
 
     /**
-     * Set sender party.
+     * Set emitting accredited platform (TG-3).
      */
-    public function setSender(?Party $sender): self
+    public function setSender(?Sender $sender): self
     {
         $this->sender = $sender;
         return $this;

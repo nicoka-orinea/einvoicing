@@ -112,10 +112,21 @@ class Invoice
     protected float|string|null $taxExclusiveAmount = null;
 
     /**
-     * VAT amount.
+     * VAT amount, in the invoice currency.
      * @var float|string|null
      */
     protected float|string|null $taxAmount = null;
+
+    /**
+     * Total VAT amount converted to euros (TT-52).
+     *
+     * The PPF requires this total in euros whatever the invoice currency (G6.23), so a
+     * non-EUR invoice must carry the converted value here. Conversion is a business
+     * decision and is never performed by the library.
+     *
+     * @var float|string|null
+     */
+    protected float|string|null $vatAmountEur = null;
 
     /**
      * VAT breakdown lines.
@@ -426,6 +437,27 @@ class Invoice
     public function setTaxAmount(float|string|null $taxAmount): self
     {
         $this->taxAmount = $taxAmount;
+        return $this;
+    }
+
+    /**
+     * Get total VAT amount in euros (TT-52).
+     */
+    public function getVatAmountEur(): float|string|null
+    {
+        return $this->vatAmountEur;
+    }
+
+    /**
+     * Set total VAT amount in euros (TT-52, G6.23).
+     *
+     * Required when the invoice currency is not EUR.
+     *
+     * @param float|string|null $vatAmountEur
+     */
+    public function setVatAmountEur(float|string|null $vatAmountEur): self
+    {
+        $this->vatAmountEur = $vatAmountEur;
         return $this;
     }
 

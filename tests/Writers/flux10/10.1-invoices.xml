@@ -7,9 +7,9 @@
     </IssueDateTime>
     <TypeCode>IN</TypeCode>
     <Sender>
-      <Id schemeId="0002">123456789</Id>
-      <Name>Sender SA</Name>
-      <RoleCode>SE</RoleCode>
+      <Id schemeId="0238">PA01</Id>
+      <Name>Accredited Platform SA</Name>
+      <RoleCode>WK</RoleCode>
     </Sender>
     <Issuer>
       <Id schemeId="0002">123456789</Id>
@@ -19,15 +19,15 @@
   </ReportDocument>
   <TransactionsReport>
     <ReportPeriod>
-      <StartDate>2026-01-01</StartDate>
-      <EndDate>2026-01-31</EndDate>
+      <StartDate>20260101</StartDate>
+      <EndDate>20260131</EndDate>
     </ReportPeriod>
     <Invoice>
       <ID>INV-1</ID>
-      <IssueDate>2026-01-10</IssueDate>
+      <IssueDate>20260110</IssueDate>
       <TypeCode>380</TypeCode>
       <CurrencyCode>EUR</CurrencyCode>
-      <DueDate>2026-02-09</DueDate>
+      <DueDate>20260209</DueDate>
       <BusinessProcess>
         <ID>S1</ID>
         <TypeID>urn.cpro.gouv.fr:1p0:ereporting</TypeID>

@@ -7,9 +7,9 @@
     </IssueDateTime>
     <TypeCode>IN</TypeCode>
     <Sender>
-      <Id schemeId="0002">123456789</Id>
-      <Name>Sender SA</Name>
-      <RoleCode>SE</RoleCode>
+      <Id schemeId="0238">PA01</Id>
+      <Name>Accredited Platform SA</Name>
+      <RoleCode>WK</RoleCode>
     </Sender>
     <Issuer>
       <Id schemeId="0002">123456789</Id>
@@ -19,11 +19,11 @@
   </ReportDocument>
   <TransactionsReport>
     <ReportPeriod>
-      <StartDate>2026-01-01</StartDate>
-      <EndDate>2026-01-31</EndDate>
+      <StartDate>20260101</StartDate>
+      <EndDate>20260131</EndDate>
     </ReportPeriod>
     <Transactions>
-      <Date>2026-01-15</Date>
+      <Date>20260115</Date>
       <TransactionsCurrency>EUR</TransactionsCurrency>
       <CategoryCode>TPS1</CategoryCode>
       <TaxExclusiveAmount>5000.00</TaxExclusiveAmount>
