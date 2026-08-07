@@ -45,6 +45,7 @@ nav:
     - EU e-Invoicing core concepts: getting-started/eu-einvoicing-concepts.md
     - Creating your first invoice: getting-started/your-first-invoice.md
     - Importing, exporting and validating documents: getting-started/importing-exporting-and-validating.md
+    - French PPF invoices (Factur-X): getting-started/france-ppf.md
     - CDAR status mapping: getting-started/cdar-status-mapping.md
     - Importing CDAR XML: getting-started/importing-cdar.md
     - Exporting CDAR XML: getting-started/exporting-cdar.md
