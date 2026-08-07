@@ -13,6 +13,9 @@ enum TransmissionTypeCode: string
     case INITIAL = 'IN';
     case RECTIFICATIVE = 'RE';
 
+    /**
+     * Get an English label for UI and logs.
+     */
     public function label(): string
     {
         return match ($this) {

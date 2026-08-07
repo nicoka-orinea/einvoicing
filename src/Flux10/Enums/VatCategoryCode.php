@@ -29,6 +29,9 @@ enum VatCategoryCode: string
         return $this === self::EXEMPT;
     }
 
+    /**
+     * Get an English label for UI and logs.
+     */
     public function label(): string
     {
         return match ($this) {

@@ -137,6 +137,57 @@ class Invoice
     protected $taxBreakdown = [];
 
     /**
+     * Invoice notes (TG-9).
+     * @var Note[]
+     */
+    protected array $notes = [];
+
+    /**
+     * References to earlier invoices (TG-11).
+     *
+     * Mandatory for a corrective invoice or a credit note (G1.32).
+     *
+     * @var ReferencedDocument[]
+     */
+    protected array $referencedDocuments = [];
+
+    /**
+     * VAT identifier of the seller's tax representative (TT-122).
+     * @var string|null
+     */
+    protected ?string $sellerTaxRepresentativeVatId = null;
+
+    /**
+     * Identifier scheme of the tax representative VAT identifier (TT-40).
+     * @var string|null
+     */
+    protected ?string $sellerTaxRepresentativeSchemeId = null;
+
+    /**
+     * Delivery information (TG-17).
+     * @var Delivery[]
+     */
+    protected array $deliveries = [];
+
+    /**
+     * Invoicing period (TG-18).
+     * @var Period|null
+     */
+    protected ?Period $invoicePeriod = null;
+
+    /**
+     * Document-level allowances and charges (TG-20, TG-21).
+     * @var AllowanceCharge[]
+     */
+    protected array $allowancesCharges = [];
+
+    /**
+     * Invoice lines (TG-24).
+     * @var Line[]
+     */
+    protected array $lines = [];
+
+    /**
      * Get invoice identifier.
      */
     public function getInvoiceId(): ?string
@@ -511,6 +562,249 @@ class Invoice
     public function clearTaxBreakdown(): self
     {
         $this->taxBreakdown = [];
+        return $this;
+    }
+
+    /**
+     * @return Note[]
+     */
+    public function getNotes(): array
+    {
+        return $this->notes;
+    }
+
+    /**
+     * Add an invoice note (TG-9).
+     */
+    public function addNote(Note $note): self
+    {
+        $this->notes[] = $note;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeNote(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->notes)) {
+            throw new OutOfBoundsException('Could not find note by index');
+        }
+        array_splice($this->notes, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all invoice notes.
+     */
+    public function clearNotes(): self
+    {
+        $this->notes = [];
+        return $this;
+    }
+
+    /**
+     * @return ReferencedDocument[]
+     */
+    public function getReferencedDocuments(): array
+    {
+        return $this->referencedDocuments;
+    }
+
+    /**
+     * Add a reference to an earlier invoice (TG-11, G1.32).
+     */
+    public function addReferencedDocument(ReferencedDocument $referencedDocument): self
+    {
+        $this->referencedDocuments[] = $referencedDocument;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeReferencedDocument(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->referencedDocuments)) {
+            throw new OutOfBoundsException('Could not find referenced document by index');
+        }
+        array_splice($this->referencedDocuments, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all references to earlier invoices.
+     */
+    public function clearReferencedDocuments(): self
+    {
+        $this->referencedDocuments = [];
+        return $this;
+    }
+
+    /**
+     * Get the VAT identifier of the seller's tax representative (TT-122).
+     */
+    public function getSellerTaxRepresentativeVatId(): ?string
+    {
+        return $this->sellerTaxRepresentativeVatId;
+    }
+
+    /**
+     * Set the VAT identifier of the seller's tax representative (TT-122).
+     *
+     * Satisfies G1.102 in place of the seller VAT identifier when the breakdown is exempt.
+     */
+    public function setSellerTaxRepresentativeVatId(?string $vatId): self
+    {
+        $this->sellerTaxRepresentativeVatId = $vatId;
+        return $this;
+    }
+
+    /**
+     * Get the scheme of the tax representative VAT identifier (TT-40).
+     */
+    public function getSellerTaxRepresentativeSchemeId(): ?string
+    {
+        return $this->sellerTaxRepresentativeSchemeId;
+    }
+
+    /**
+     * Set the scheme of the tax representative VAT identifier (TT-40).
+     */
+    public function setSellerTaxRepresentativeSchemeId(?string $schemeId): self
+    {
+        $this->sellerTaxRepresentativeSchemeId = $schemeId;
+        return $this;
+    }
+
+    /**
+     * @return Delivery[]
+     */
+    public function getDeliveries(): array
+    {
+        return $this->deliveries;
+    }
+
+    /**
+     * Add delivery information (TG-17).
+     */
+    public function addDelivery(Delivery $delivery): self
+    {
+        $this->deliveries[] = $delivery;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeDelivery(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->deliveries)) {
+            throw new OutOfBoundsException('Could not find delivery by index');
+        }
+        array_splice($this->deliveries, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all delivery blocks.
+     */
+    public function clearDeliveries(): self
+    {
+        $this->deliveries = [];
+        return $this;
+    }
+
+    /**
+     * Get the invoicing period (TG-18).
+     */
+    public function getInvoicePeriod(): ?Period
+    {
+        return $this->invoicePeriod;
+    }
+
+    /**
+     * Set the invoicing period (TG-18, G6.20).
+     */
+    public function setInvoicePeriod(?Period $invoicePeriod): self
+    {
+        $this->invoicePeriod = $invoicePeriod;
+        return $this;
+    }
+
+    /**
+     * @return AllowanceCharge[]
+     */
+    public function getAllowancesCharges(): array
+    {
+        return $this->allowancesCharges;
+    }
+
+    /**
+     * Add a document-level allowance or charge (TG-20, TG-21).
+     */
+    public function addAllowanceCharge(AllowanceCharge $allowanceCharge): self
+    {
+        $this->allowancesCharges[] = $allowanceCharge;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeAllowanceCharge(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->allowancesCharges)) {
+            throw new OutOfBoundsException('Could not find allowance or charge by index');
+        }
+        array_splice($this->allowancesCharges, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all document-level allowances and charges.
+     */
+    public function clearAllowancesCharges(): self
+    {
+        $this->allowancesCharges = [];
+        return $this;
+    }
+
+    /**
+     * @return Line[]
+     */
+    public function getLines(): array
+    {
+        return $this->lines;
+    }
+
+    /**
+     * Add an invoice line (TG-24).
+     */
+    public function addLine(Line $line): self
+    {
+        $this->lines[] = $line;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeLine(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->lines)) {
+            throw new OutOfBoundsException('Could not find line by index');
+        }
+        array_splice($this->lines, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all invoice lines.
+     */
+    public function clearLines(): self
+    {
+        $this->lines = [];
         return $this;
     }
 }

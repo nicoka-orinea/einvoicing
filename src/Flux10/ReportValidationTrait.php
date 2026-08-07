@@ -1,17 +1,14 @@
 <?php
 
-namespace Einvoicing\Flux10\Traits;
+namespace Einvoicing\Flux10;
 
 use DateTimeInterface;
 use Einvoicing\Exceptions\ValidationException;
 use Einvoicing\Flux10\Enums\InvoiceTypeCode;
 use Einvoicing\Flux10\Enums\VatRate;
-use Einvoicing\Flux10\Invoice;
-use Einvoicing\Flux10\Report;
-use Einvoicing\Flux10\TaxBreakdown;
-use Einvoicing\Flux10\Transaction;
 use function abs;
 use function array_filter;
+use function count;
 use function preg_match;
 use function sprintf;
 use function strlen;
@@ -182,6 +179,57 @@ trait ReportValidationTrait
                         $invoice->getInvoiceId() ?? '',
                         $framework->value,
                         $invoice->getTypeCode() ?? ''
+                    );
+                }
+            }
+            return null;
+        };
+
+        $rules['G1.32'] = static function (Report $report): ?string {
+            foreach (self::invoicesOf($report) as $invoice) {
+                $type = $invoice->getTypeCode();
+                $headerReferences = $invoice->getReferencedDocuments();
+
+                if (InvoiceTypeCode::isCorrective($type)) {
+                    if (count($headerReferences) !== 1) {
+                        return sprintf(
+                            'Corrective invoice "%s" must reference exactly one earlier invoice (TT-30), found %d',
+                            $invoice->getInvoiceId() ?? '',
+                            count($headerReferences)
+                        );
+                    }
+                    if (self::normalizeDate($headerReferences[0]->getIssueDate()) === null) {
+                        return sprintf(
+                            'Corrective invoice "%s" must carry the date of the invoice it amends (TT-31)',
+                            $invoice->getInvoiceId() ?? ''
+                        );
+                    }
+                    continue;
+                }
+
+                if (!InvoiceTypeCode::isCreditNote($type)) {
+                    continue;
+                }
+
+                // A credit note references either in the header or on every line
+                if (count($headerReferences) > 0) {
+                    continue;
+                }
+
+                $lines = $invoice->getLines();
+                $everyLineReferences = count($lines) > 0;
+                foreach ($lines as $line) {
+                    if ($line->getReferencedDocument()?->getId() === null) {
+                        $everyLineReferences = false;
+                        break;
+                    }
+                }
+
+                if (!$everyLineReferences) {
+                    return sprintf(
+                        'Credit note "%s" must reference at least one earlier invoice, in the header (TT-30) ' .
+                        'or on every line (TT-300)',
+                        $invoice->getInvoiceId() ?? ''
                     );
                 }
             }
