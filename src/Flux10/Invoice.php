@@ -123,17 +123,26 @@ class Invoice
      */
     protected $taxBreakdown = [];
 
+    /**
+     * Get invoice identifier.
+     */
     public function getInvoiceId(): ?string
     {
         return $this->invoiceId;
     }
 
+    /**
+     * Set invoice identifier.
+     */
     public function setInvoiceId(?string $invoiceId): self
     {
         $this->invoiceId = $invoiceId;
         return $this;
     }
 
+    /**
+     * Get invoice issue date.
+     */
     public function getIssueDate(): DateTime|string|null
     {
         return $this->issueDate;
@@ -148,17 +157,26 @@ class Invoice
         return $this;
     }
 
+    /**
+     * Get invoice currency code.
+     */
     public function getCurrencyCode(): ?string
     {
         return $this->currencyCode;
     }
 
+    /**
+     * Set invoice currency code.
+     */
     public function setCurrencyCode(?string $currencyCode): self
     {
         $this->currencyCode = $currencyCode;
         return $this;
     }
 
+    /**
+     * Get invoice due date.
+     */
     public function getDueDate(): DateTime|string|null
     {
         return $this->dueDate;
@@ -173,138 +191,213 @@ class Invoice
         return $this;
     }
 
+    /**
+     * Get VAT due date type code.
+     */
     public function getTaxDueDateTypeCode(): ?string
     {
         return $this->taxDueDateTypeCode;
     }
 
+    /**
+     * Set VAT due date type code.
+     */
     public function setTaxDueDateTypeCode(?string $taxDueDateTypeCode): self
     {
         $this->taxDueDateTypeCode = $taxDueDateTypeCode;
         return $this;
     }
 
+    /**
+     * Get business process ID.
+     */
     public function getBusinessProcessId(): ?string
     {
         return $this->businessProcessId;
     }
 
+    /**
+     * Set business process ID.
+     */
     public function setBusinessProcessId(?string $businessProcessId): self
     {
         $this->businessProcessId = $businessProcessId;
         return $this;
     }
 
+    /**
+     * Get business process type ID.
+     */
     public function getBusinessProcessTypeId(): ?string
     {
         return $this->businessProcessTypeId;
     }
 
+    /**
+     * Set business process type ID.
+     */
     public function setBusinessProcessTypeId(?string $businessProcessTypeId): self
     {
         $this->businessProcessTypeId = $businessProcessTypeId;
         return $this;
     }
 
+    /**
+     * Get invoice type code.
+     */
     public function getTypeCode(): ?string
     {
         return $this->typeCode;
     }
 
+    /**
+     * Set invoice type code.
+     */
     public function setTypeCode(?string $typeCode): self
     {
         $this->typeCode = $typeCode;
         return $this;
     }
 
+    /**
+     * Get seller identifier.
+     */
     public function getSellerId(): ?string
     {
         return $this->sellerId;
     }
 
+    /**
+     * Set seller identifier.
+     */
     public function setSellerId(?string $sellerId): self
     {
         $this->sellerId = $sellerId;
         return $this;
     }
 
+    /**
+     * Get seller identifier scheme.
+     */
     public function getSellerSchemeId(): ?string
     {
         return $this->sellerSchemeId;
     }
 
+    /**
+     * Set seller identifier scheme.
+     */
     public function setSellerSchemeId(?string $sellerSchemeId): self
     {
         $this->sellerSchemeId = $sellerSchemeId;
         return $this;
     }
 
+    /**
+     * Get seller country code.
+     */
     public function getSellerCountry(): ?string
     {
         return $this->sellerCountry;
     }
 
+    /**
+     * Set seller country code.
+     */
     public function setSellerCountry(?string $sellerCountry): self
     {
         $this->sellerCountry = $sellerCountry;
         return $this;
     }
 
+    /**
+     * Get seller VAT ID.
+     */
     public function getSellerVatId(): ?string
     {
         return $this->sellerVatId;
     }
 
+    /**
+     * Set seller VAT ID.
+     */
     public function setSellerVatId(?string $sellerVatId): self
     {
         $this->sellerVatId = $sellerVatId;
         return $this;
     }
 
+    /**
+     * Get buyer identifier.
+     */
     public function getBuyerId(): ?string
     {
         return $this->buyerId;
     }
 
+    /**
+     * Set buyer identifier.
+     */
     public function setBuyerId(?string $buyerId): self
     {
         $this->buyerId = $buyerId;
         return $this;
     }
 
+    /**
+     * Get buyer identifier scheme.
+     */
     public function getBuyerSchemeId(): ?string
     {
         return $this->buyerSchemeId;
     }
 
+    /**
+     * Set buyer identifier scheme.
+     */
     public function setBuyerSchemeId(?string $buyerSchemeId): self
     {
         $this->buyerSchemeId = $buyerSchemeId;
         return $this;
     }
 
+    /**
+     * Get buyer country code.
+     */
     public function getBuyerCountry(): ?string
     {
         return $this->buyerCountry;
     }
 
+    /**
+     * Set buyer country code.
+     */
     public function setBuyerCountry(?string $buyerCountry): self
     {
         $this->buyerCountry = $buyerCountry;
         return $this;
     }
 
+    /**
+     * Get buyer VAT ID.
+     */
     public function getBuyerVatId(): ?string
     {
         return $this->buyerVatId;
     }
 
+    /**
+     * Set buyer VAT ID.
+     */
     public function setBuyerVatId(?string $buyerVatId): self
     {
         $this->buyerVatId = $buyerVatId;
         return $this;
     }
 
+    /**
+     * Get amount without VAT.
+     */
     public function getTaxExclusiveAmount(): float|string|null
     {
         return $this->taxExclusiveAmount;
@@ -319,6 +412,9 @@ class Invoice
         return $this;
     }
 
+    /**
+     * Get VAT amount.
+     */
     public function getTaxAmount(): float|string|null
     {
         return $this->taxAmount;
@@ -341,6 +437,9 @@ class Invoice
         return $this->taxBreakdown;
     }
 
+    /**
+     * Add VAT breakdown item.
+     */
     public function addTaxBreakdownItem(TaxBreakdown $item): self
     {
         $this->taxBreakdown[] = $item;
@@ -360,6 +459,9 @@ class Invoice
         return $this;
     }
 
+    /**
+     * Clear VAT breakdown items.
+     */
     public function clearTaxBreakdown(): self
     {
         $this->taxBreakdown = [];

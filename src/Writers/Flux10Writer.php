@@ -30,6 +30,11 @@ class Flux10Writer extends AbstractMultiWriter
     private const DATE_TIME_FORMAT = 'c';
     private const DEFAULT_TRANSMISSION_TYPE = 'IN';
 
+    /**
+     * Export one or more invoices, or an already prepared Flux 10 report.
+     *
+     * @param array<int,Invoice|Flux10Report> $invoices Invoices or a single Flux 10 report
+     */
     public function exportAll(array $invoices): string
     {
         if (count($invoices) === 1 && $invoices[0] instanceof Flux10Report) {
@@ -41,11 +46,17 @@ class Flux10Writer extends AbstractMultiWriter
         return $this->exportReport($report);
     }
 
+    /**
+     * Export a single invoice to Flux 10 XML.
+     */
     public function export(Invoice $invoice): string
     {
         return $this->exportAll([$invoice]);
     }
 
+    /**
+     * Export an already prepared Flux 10 report to XML.
+     */
     public function exportReport(Flux10Report $report): string
     {
         $xml = $this->createRoot();

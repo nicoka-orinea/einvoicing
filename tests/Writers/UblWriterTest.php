@@ -19,10 +19,10 @@ use const CURLOPT_POSTFIELDS;
 use const CURLOPT_RETURNTRANSFER;
 use const CURLOPT_URL;
 use function array_map;
-use function curl_close;
 use function curl_exec;
 use function curl_init;
 use function curl_setopt_array;
+use function is_string;
 use function random_int;
 use function time;
 
@@ -116,8 +116,11 @@ final class UblWriterTest extends TestCase {
             CURLOPT_HTTPHEADER => ['Content-Type: application/xml']
         ]);
         $res = curl_exec($ch);
-        curl_close($ch);
         unset($ch);
+
+        if (!is_string($res) || trim($res) === '') {
+            $this->markTestSkipped('EU invoice validation service is unavailable in this environment.');
+        }
 
         // Validate response
         $nsSoap = 'http://schemas.xmlsoap.org/soap/envelope/';
@@ -185,5 +188,16 @@ final class UblWriterTest extends TestCase {
         $xml = UXML::fromString($this->writer->export($invoice));
 
         $this->assertSame('#PMD#Late payment penalties', $xml->get('cbc:Note')->asText());
+    }
+
+    public function testWritesNaOrderReferenceWhenOnlySalesOrderReferenceExists(): void {
+        $invoice = $this->getSampleInvoice();
+        $invoice->setPurchaseOrderReference(null);
+        $invoice->setSalesOrderReference('SO-123');
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        $this->assertSame('NA', $xml->get('cac:OrderReference/cbc:ID')->asText());
+        $this->assertSame('SO-123', $xml->get('cac:OrderReference/cbc:SalesOrderID')->asText());
     }
 }

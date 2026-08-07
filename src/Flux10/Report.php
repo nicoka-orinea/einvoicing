@@ -68,66 +68,102 @@ class Report
      */
     protected $transactionPayments = [];
 
+    /**
+     * Get report identifier.
+     */
     public function getReportId(): ?string
     {
         return $this->reportId;
     }
 
+    /**
+     * Set report identifier.
+     */
     public function setReportId(?string $reportId): self
     {
         $this->reportId = $reportId;
         return $this;
     }
 
+    /**
+     * Get report name.
+     */
     public function getReportName(): ?string
     {
         return $this->reportName;
     }
 
+    /**
+     * Set report name.
+     */
     public function setReportName(?string $reportName): self
     {
         $this->reportName = $reportName;
         return $this;
     }
 
+    /**
+     * Get transmission type.
+     */
     public function getTransmissionType(): string
     {
         return $this->transmissionType;
     }
 
+    /**
+     * Set transmission type.
+     */
     public function setTransmissionType(string $transmissionType): self
     {
         $this->transmissionType = $transmissionType;
         return $this;
     }
 
+    /**
+     * Get sender party.
+     */
     public function getSender(): ?Party
     {
         return $this->sender;
     }
 
+    /**
+     * Set sender party.
+     */
     public function setSender(?Party $sender): self
     {
         $this->sender = $sender;
         return $this;
     }
 
+    /**
+     * Get issuer party.
+     */
     public function getIssuer(): ?Issuer
     {
         return $this->issuer;
     }
 
+    /**
+     * Set issuer party.
+     */
     public function setIssuer(?Issuer $issuer): self
     {
         $this->issuer = $issuer;
         return $this;
     }
 
+    /**
+     * Get reporting period.
+     */
     public function getPeriod(): ?Period
     {
         return $this->period;
     }
 
+    /**
+     * Set reporting period.
+     */
     public function setPeriod(?Period $period): self
     {
         $this->period = $period;
@@ -142,6 +178,9 @@ class Report
         return $this->invoices;
     }
 
+    /**
+     * Add a flux invoice entry.
+     */
     public function addInvoice(Invoice $invoice): self
     {
         $this->invoices[] = $invoice;
@@ -160,6 +199,9 @@ class Report
         return $this;
     }
 
+    /**
+     * Clear all flux invoice entries.
+     */
     public function clearInvoices(): self
     {
         $this->invoices = [];
@@ -174,6 +216,9 @@ class Report
         return $this->invoicePayments;
     }
 
+    /**
+     * Add an invoice payment entry.
+     */
     public function addInvoicePayment(InvoicePayment $payment): self
     {
         $this->invoicePayments[] = $payment;
@@ -192,6 +237,9 @@ class Report
         return $this;
     }
 
+    /**
+     * Clear all invoice payment entries.
+     */
     public function clearInvoicePayments(): self
     {
         $this->invoicePayments = [];
@@ -206,6 +254,9 @@ class Report
         return $this->transactions;
     }
 
+    /**
+     * Add a transaction entry.
+     */
     public function addTransaction(Transaction $transaction): self
     {
         $this->transactions[] = $transaction;
@@ -224,6 +275,9 @@ class Report
         return $this;
     }
 
+    /**
+     * Clear all transaction entries.
+     */
     public function clearTransactions(): self
     {
         $this->transactions = [];
@@ -238,6 +292,9 @@ class Report
         return $this->transactionPayments;
     }
 
+    /**
+     * Add a transaction payment entry.
+     */
     public function addTransactionPayment(TransactionPayment $payment): self
     {
         $this->transactionPayments[] = $payment;
@@ -256,6 +313,9 @@ class Report
         return $this;
     }
 
+    /**
+     * Clear all transaction payment entries.
+     */
     public function clearTransactionPayments(): self
     {
         $this->transactionPayments = [];

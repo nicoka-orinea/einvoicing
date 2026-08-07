@@ -11,12 +11,12 @@ class SpecifiedDocumentCharacteristic
     private ?string $id = null;
     private ?string $typeCode = null;
     private ?bool $valueChangedIndicator = null;
-    private ?string $name = null;
+    private ?string $description = null;
     private ?string $location = null;
     private ?float $valuePercent = null;
     private ?ValueAmount $valueAmount = null;
     private ?DateTime $valueDateTime = null;
-    private ?string $valueText = null;
+    private ?string $value = null;
 
     /**
      * Get the characteristic identifier.
@@ -79,19 +79,35 @@ class SpecifiedDocumentCharacteristic
      * Get the characteristic name.
      * Business meaning: human-readable data point name.
      */
-    public function getName(): ?string
+    public function getDescription(): ?string
     {
-        return $this->name;
+        return $this->description;
     }
 
     /**
      * Set the characteristic name.
      * Business meaning: human-readable data point name.
      */
+    public function setDescription(?string $description): self
+    {
+        $this->description = $description;
+        return $this;
+    }
+
+    /**
+     * Legacy alias for getDescription().
+     */
+    public function getName(): ?string
+    {
+        return $this->getDescription();
+    }
+
+    /**
+     * Legacy alias for setDescription().
+     */
     public function setName(?string $name): self
     {
-        $this->name = $name;
-        return $this;
+        return $this->setDescription($name);
     }
 
     /**
@@ -174,18 +190,34 @@ class SpecifiedDocumentCharacteristic
      * Get the text value.
      * Business meaning: text value for the data point.
      */
-    public function getValueText(): ?string
+    public function getValue(): ?string
     {
-        return $this->valueText;
+        return $this->value;
     }
 
     /**
      * Set the text value.
      * Business meaning: text value for the data point.
      */
+    public function setValue(?string $value): self
+    {
+        $this->value = $value;
+        return $this;
+    }
+
+    /**
+     * Legacy alias for getValue().
+     */
+    public function getValueText(): ?string
+    {
+        return $this->getValue();
+    }
+
+    /**
+     * Legacy alias for setValue().
+     */
     public function setValueText(?string $valueText): self
     {
-        $this->valueText = $valueText;
-        return $this;
+        return $this->setValue($valueText);
     }
 }

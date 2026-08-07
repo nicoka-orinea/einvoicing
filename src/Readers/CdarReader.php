@@ -132,10 +132,10 @@ class CdarReader
         if ($processCodeNode !== null) {
             $processCode = $processCodeNode->asText();
             $reference->setProcessConditionCode($processCode);
-            try {
-                $condition = ProcessConditionCode::from((int) $processCode);
-                $reference->setProcessCondition($condition->label());
-            } catch (ValueError $error) {
+            $label = $this->resolveProcessConditionLabel($processCode, null);
+            if ($label !== null) {
+                $reference->setProcessCondition($label);
+            } else {
                 $processCode = null;
             }
         }
@@ -149,9 +149,8 @@ class CdarReader
         if ($issuerPartyNode !== null) {
             $reference->setIssuerTradeParty($this->parseTradeParty($issuerPartyNode));
         }
-        $statusNode = $node->get("ram:SpecifiedDocumentStatus");
-        if ($statusNode !== null) {
-            $reference->setSpecifiedDocumentStatus($this->parseSpecifiedDocumentStatus($statusNode));
+        foreach ($node->getAll("ram:SpecifiedDocumentStatus") as $statusNode) {
+            $reference->addSpecifiedDocumentStatus($this->parseSpecifiedDocumentStatus($statusNode));
         }
         return $reference;
     }
@@ -159,6 +158,20 @@ class CdarReader
     private function parseSpecifiedDocumentStatus(UXML $node): SpecifiedDocumentStatus
     {
         $status = new SpecifiedDocumentStatus();
+        $referenceDateNode = $node->get("ram:ReferenceDateTime/qdt:DateTimeString | ram:ReferenceDateTime/udt:DateTimeString");
+        if ($referenceDateNode !== null) {
+            $status->setReferenceDateTime($this->parseDateTime($referenceDateNode));
+        }
+        $processCodeNode = $node->get("ram:ProcessConditionCode");
+        if ($processCodeNode !== null) {
+            $processCode = $processCodeNode->asText();
+            $status->setProcessConditionCode($processCode);
+            $status->setProcessCondition($this->resolveProcessConditionLabel($processCode, null));
+        }
+        $processNode = $node->get("ram:ProcessCondition");
+        if ($processNode !== null) {
+            $status->setProcessCondition($processNode->asText());
+        }
         $reasonCodeNode = $node->get("ram:ReasonCode");
         if ($reasonCodeNode !== null) {
             $status->setReasonCode($reasonCodeNode->asText());
@@ -196,13 +209,13 @@ class CdarReader
         if ($typeCodeNode !== null) {
             $characteristic->setTypeCode($typeCodeNode->asText());
         }
-        $indicatorNode = $node->get("ram:ValueChangedIndicator/udt:IndicatorString");
+        $indicatorNode = $node->get("ram:ValueChangedIndicator/udt:Indicator | ram:ValueChangedIndicator/udt:IndicatorString");
         if ($indicatorNode !== null) {
             $characteristic->setValueChangedIndicator($this->parseIndicator($indicatorNode->asText()));
         }
-        $nameNode = $node->get("ram:Name");
-        if ($nameNode !== null) {
-            $characteristic->setName($nameNode->asText());
+        $descriptionNode = $node->get("ram:Description | ram:Name");
+        if ($descriptionNode !== null) {
+            $characteristic->setDescription($descriptionNode->asText());
         }
         $locationNode = $node->get("ram:Location");
         if ($locationNode !== null) {
@@ -226,9 +239,9 @@ class CdarReader
         if ($dateNode !== null) {
             $characteristic->setValueDateTime($this->parseDateTime($dateNode));
         }
-        $textNode = $node->get("ram:ValueText");
+        $textNode = $node->get("ram:Value | ram:ValueText");
         if ($textNode !== null) {
-            $characteristic->setValueText($textNode->asText());
+            $characteristic->setValue($textNode->asText());
         }
         return $characteristic;
     }
@@ -279,5 +292,14 @@ class CdarReader
     private function parseIndicator(string $value): bool
     {
         return strtolower(trim($value)) === 'true' || trim($value) === '1';
+    }
+
+    private function resolveProcessConditionLabel(string $code, ?string $fallback): ?string
+    {
+        try {
+            return ProcessConditionCode::from((int) $code)->xmlLabel();
+        } catch (ValueError $error) {
+            return $fallback;
+        }
     }
 }

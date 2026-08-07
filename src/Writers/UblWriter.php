@@ -287,6 +287,8 @@ class UblWriter extends AbstractWriter {
         // BT-13: Purchase order reference
         if ($purchaseOrderReference !== null) {
             $orderReferenceNode->add('cbc:ID', $purchaseOrderReference);
+        } elseif ($salesOrderReference !== null) {
+            $orderReferenceNode->add('cbc:ID', 'NA');
         }
 
         // BT-14: Sales order reference

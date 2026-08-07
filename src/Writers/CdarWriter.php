@@ -133,8 +133,10 @@ class CdarWriter
         }
         if ($reference->getFormattedIssueDateTime() !== null) {
             $formatted = $node->add("ram:FormattedIssueDateTime");
-            $this->addDateTimeString($formatted, "qdt:DateTimeString", $reference->getFormattedIssueDateTime(), '102');
+            // Flux 6 / CDV MDT-100-1: FormattedIssueDateTime uses UNTDID 2379 format 204 (YmdHis).
+            $this->addDateTimeString($formatted, "qdt:DateTimeString", $reference->getFormattedIssueDateTime(), '204');
         }
+        $statuses = $reference->getSpecifiedDocumentStatuses();
         $processCode = $reference->getProcessConditionCode();
         if ($processCode !== null) {
             $node->add("ram:ProcessConditionCode", $processCode);
@@ -148,18 +150,35 @@ class CdarWriter
         if ($reference->getIssuerTradeParty() !== null) {
             $this->addTradeParty($node->add("ram:IssuerTradeParty"), $reference->getIssuerTradeParty());
         }
-        if ($reference->getSpecifiedDocumentStatus() !== null) {
-            $this->addSpecifiedDocumentStatus($node->add("ram:SpecifiedDocumentStatus"), $reference->getSpecifiedDocumentStatus());
+        foreach ($statuses as $status) {
+            $this->addSpecifiedDocumentStatus($node->add("ram:SpecifiedDocumentStatus"), $status);
         }
     }
 
     private function addSpecifiedDocumentStatus(UXML $node, SpecifiedDocumentStatus $status): void
     {
+        // Child order is fixed by the Flux 6 / CDV CI-ARM content model (Annexe 2):
+        // ReferenceDateTime, ReasonCode, Reason, ProcessConditionCode, ProcessCondition,
+        // RequestedActionCode, RequestedAction, SequenceNumeric, IncludedNote,
+        // SpecifiedDocumentCharacteristic. Emitting ProcessConditionCode or SequenceNumeric
+        // out of this order makes the CDAR fail XSD validation (cvc-complex-type.2.4.a).
+        if ($status->getReferenceDateTime() !== null) {
+            $referenceDate = $node->add("ram:ReferenceDateTime");
+            // ram:ReferenceDateTime is a UN/CEFACT DateTimeType: it only accepts udt:DateTimeString
+            // (or udt:DateTime), never qdt:DateTimeString. MDT-110-1: UNTDID 2379 format 204 (YmdHis).
+            $this->addDateTimeString($referenceDate, "udt:DateTimeString", $status->getReferenceDateTime(), '204');
+        }
         if ($status->getReasonCode() !== null) {
             $node->add("ram:ReasonCode", $status->getReasonCode());
         }
         if ($status->getReason() !== null) {
             $node->add("ram:Reason", $status->getReason());
+        }
+        if ($status->getProcessConditionCode() !== null) {
+            $node->add("ram:ProcessConditionCode", $status->getProcessConditionCode());
+        }
+        if ($status->getProcessCondition() !== null) {
+            $node->add("ram:ProcessCondition", $status->getProcessCondition());
         }
         if ($status->getRequestedActionCode() !== null) {
             $node->add("ram:RequestedActionCode", $status->getRequestedActionCode());
@@ -167,8 +186,9 @@ class CdarWriter
         if ($status->getRequestedAction() !== null) {
             $node->add("ram:RequestedAction", $status->getRequestedAction());
         }
-        if ($status->getSequenceNumeric() !== null) {
-            $node->add("ram:SequenceNumeric", (string) $status->getSequenceNumeric());
+        $node->add("ram:SequenceNumeric", (string) ($status->getSequenceNumeric() ?? 1));
+        foreach ($status->getIncludedNotes() as $note) {
+            $this->addIncludedNote($node->add("ram:IncludedNote"), $status->getIncludedNoteContentCode(), $note);
         }
         foreach ($status->getCharacteristics() as $characteristic) {
             $this->addSpecifiedDocumentCharacteristic($node->add("ram:SpecifiedDocumentCharacteristic"), $characteristic);
@@ -185,17 +205,19 @@ class CdarWriter
         }
         if ($characteristic->getValueChangedIndicator() !== null) {
             $indicator = $characteristic->getValueChangedIndicator() ? 'true' : 'false';
+            // MDT-209: SpecifiedDocumentCharacteristic/ValueChangedIndicator carries udt:IndicatorString
+            // (unlike MultipleReferencesIndicator / CopyIndicator which use udt:Indicator).
             $node->add("ram:ValueChangedIndicator")
                 ->add("udt:IndicatorString", $indicator);
         }
-        if ($characteristic->getName() !== null) {
-            $node->add("ram:Name", $characteristic->getName());
+        if ($characteristic->getDescription() !== null) {
+            $node->add("ram:Description", $characteristic->getDescription());
         }
         if ($characteristic->getLocation() !== null) {
             $node->add("ram:Location", $characteristic->getLocation());
         }
-        if ($characteristic->getValuePercent() !== null) {
-            $node->add("ram:ValuePercent", $this->formatNumber($characteristic->getValuePercent()));
+        if ($characteristic->getValue() !== null) {
+            $node->add("ram:Value", $characteristic->getValue());
         }
         if ($characteristic->getValueAmount() !== null) {
             $this->addValueAmount($node, $characteristic->getValueAmount());
@@ -204,9 +226,24 @@ class CdarWriter
             $value = $node->add("ram:ValueDateTime");
             $this->addDateTimeString($value, "udt:DateTimeString", $characteristic->getValueDateTime(), '102');
         }
-        if ($characteristic->getValueText() !== null) {
-            $node->add("ram:ValueText", $characteristic->getValueText());
+        if ($characteristic->getValuePercent() !== null) {
+            $node->add("ram:ValuePercent", $this->formatNumber($characteristic->getValuePercent()));
         }
+    }
+
+    /**
+     * @param array{content: string, languageId: ?string} $note
+     */
+    private function addIncludedNote(UXML $node, ?string $contentCode, array $note): void
+    {
+        if ($contentCode !== null) {
+            $node->add("ram:ContentCode", $contentCode);
+        }
+        $attributes = [];
+        if ($note['languageId'] !== null) {
+            $attributes['languageID'] = $note['languageId'];
+        }
+        $node->add("ram:Content", $note['content'], $attributes);
     }
 
     private function addValueAmount(UXML $node, ValueAmount $amount): void

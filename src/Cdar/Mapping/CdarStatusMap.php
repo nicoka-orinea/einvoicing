@@ -25,6 +25,7 @@ class CdarStatusMap
             ProcessConditionCode::IN_DISPUTE->value => self::define(ProcessConditionCode::IN_DISPUTE),
             ProcessConditionCode::PAYMENT_TRANSMITTED->value => self::define(ProcessConditionCode::PAYMENT_TRANSMITTED),
             ProcessConditionCode::PAID->value => self::define(ProcessConditionCode::PAID),
+            ProcessConditionCode::REJECTED->value => self::define(ProcessConditionCode::REJECTED),
         ];
     }
 

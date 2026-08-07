@@ -13,6 +13,7 @@ class CiiWriter extends AbstractWriter
     const NS_INVOICE = 'urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100';
     const NS_RAM = 'urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100';
     const NS_UDT = 'urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100';
+    const NS_QDT = 'urn:un:unece:uncefact:data:standard:QualifiedDataType:100';
 
     /**
      * Breakdown recalculé après application des remises/majorations header,
@@ -25,19 +26,24 @@ class CiiWriter extends AbstractWriter
      * On cumule au moment où l'on écrit les remises header pour éviter les divergences d'arrondi.
      */
     private float $headerAllowanceTotal = 0.0;
+    private float $headerChargeTotal = 0.0;
 
     private function formatCurrency(float $amount): string
     {
         return number_format(round($amount, 2, PHP_ROUND_HALF_UP), 2, '.', '');
     }
 
+    /**
+     * Export an invoice to a CII XML document.
+     */
     public function export(Invoice $invoice): string
     {
         $this->computedVatBreakdownAfterHeaderAC = null;
         $this->headerAllowanceTotal = 0.0;
+        $this->headerChargeTotal = 0.0;
 
         $xml = $this->createRoot();
-        $this->addContext($xml);
+        $this->addContext($xml, $invoice);
         $this->addExchangedDocument($xml, $invoice);
 
         $transaction = $xml->add("rsm:SupplyChainTradeTransaction");
@@ -57,15 +63,20 @@ class CiiWriter extends AbstractWriter
         return UXML::newInstance("rsm:CrossIndustryInvoice", null, [
             'xmlns:rsm' => self::NS_INVOICE,
             'xmlns:ram' => self::NS_RAM,
+            'xmlns:qdt' => self::NS_QDT,
             'xmlns:udt' => self::NS_UDT
         ]);
     }
 
-    private function addContext(UXML $xml): void
+    private function addContext(UXML $xml, Invoice $invoice): void
     {
-        $xml->add("rsm:ExchangedDocumentContext")
-            ->add("ram:GuidelineSpecifiedDocumentContextParameter")
-            ->add("ram:ID", "urn:cen.eu:en16931:2017");
+        $context = $xml->add("rsm:ExchangedDocumentContext");
+        if ($invoice->getBusinessProcess() !== null) {
+            $context->add("ram:BusinessProcessSpecifiedDocumentContextParameter")
+                ->add("ram:ID", $invoice->getBusinessProcess());
+        }
+        $context->add("ram:GuidelineSpecifiedDocumentContextParameter")
+            ->add("ram:ID", $invoice->getSpecification() ?? "urn:cen.eu:en16931:2017");
     }
 
     private function addExchangedDocument(UXML $xml, Invoice $invoice): void
@@ -98,11 +109,34 @@ class CiiWriter extends AbstractWriter
 
             $lineItem
                 ->add("ram:AssociatedDocumentLineDocument")
-                ->add("ram:LineID", $line->getId());
+                ->add("ram:LineID", $line->getId() ?? (string) ($invoice->getLines() ? array_search($line, $invoice->getLines(), true) + 1 : 1));
+
+            if ($line->getNote() !== null) {
+                $lineItem->get("ram:AssociatedDocumentLineDocument")
+                    ?->add("ram:IncludedNote")
+                    ->add("ram:Content", $line->getNote());
+            }
 
             $product = $lineItem->add("ram:SpecifiedTradeProduct");
-            $product->add("ram:SellerAssignedID", $line->getSellerIdentifier());
+            if ($line->getStandardIdentifier() !== null) {
+                $product->add("ram:GlobalID", $line->getStandardIdentifier()->getValue(), [
+                    "schemeID" => $line->getStandardIdentifier()->getScheme()
+                ]);
+            }
+            if ($this->hasValue($line->getSellerIdentifier())) {
+                $product->add("ram:SellerAssignedID", $line->getSellerIdentifier());
+            }
+            if ($this->hasValue($line->getBuyerIdentifier())) {
+                $product->add("ram:BuyerAssignedID", $line->getBuyerIdentifier());
+            }
             $product->add("ram:Name", $line->getName());
+            if ($this->hasValue($line->getDescription())) {
+                $product->add("ram:Description", $line->getDescription());
+            }
+            if ($line->getOriginCountry() !== null) {
+                $product->add("ram:OriginTradeCountry")
+                    ->add("ram:ID", $line->getOriginCountry());
+            }
 
             // EN16931/CII : les prix sont HT
             $agreement = $lineItem->add("ram:SpecifiedLineTradeAgreement");
@@ -113,8 +147,17 @@ class CiiWriter extends AbstractWriter
             $agreement->add("ram:GrossPriceProductTradePrice")
                 ->add("ram:ChargeAmount", $this->formatCurrency($netUnitPrice));
 
-            $agreement->add("ram:NetPriceProductTradePrice")
-                ->add("ram:ChargeAmount", $this->formatCurrency($netUnitPrice));
+            $netPriceNode = $agreement->add("ram:NetPriceProductTradePrice");
+            $netPriceNode->add("ram:ChargeAmount", $this->formatCurrency($netUnitPrice));
+            if ($baseQty !== 1.0) {
+                $netPriceNode->add("ram:BasisQuantity", $this->formatCurrency($baseQty), [
+                    "unitCode" => $line->getUnit()
+                ]);
+            }
+            if ($line->getOrderLineReference() !== null) {
+                $agreement->add("ram:BuyerOrderReferencedDocument")
+                    ->add("ram:LineID", $line->getOrderLineReference());
+            }
 
             $lineItem->add("ram:SpecifiedLineTradeDelivery")
                 ->add("ram:BilledQuantity", $line->getQuantity(), [
@@ -151,6 +194,11 @@ class CiiWriter extends AbstractWriter
 
             if ($line->getPeriodStartDate() && $line->getPeriodEndDate()) {
                 $this->addBillingPeriod($settlement, $line);
+            }
+
+            if ($line->getBuyerAccountingReference() !== null) {
+                $settlement->add("ram:ReceivableSpecifiedTradeAccountingAccount")
+                    ->add("ram:ID", $line->getBuyerAccountingReference());
             }
 
             // ✅ BT-131 (Invoice line net amount) = net de ligne APRÈS remises/charges de ligne
@@ -235,16 +283,32 @@ class CiiWriter extends AbstractWriter
     private function addHeaderAgreement(UXML $parent, Invoice $invoice): void
     {
         $agreement = $parent->add("ram:ApplicableHeaderTradeAgreement");
+        if ($invoice->getBuyerReference() !== null) {
+            $agreement->add("ram:BuyerReference", $invoice->getBuyerReference());
+        }
         $this->addParty($agreement->add("ram:SellerTradeParty"), $invoice->getSeller());
         $this->addParty($agreement->add("ram:BuyerTradeParty"), $invoice->getBuyer());
+        if ($invoice->getPurchaseOrderReference() !== null) {
+            $agreement->add("ram:BuyerOrderReferencedDocument")
+                ->add("ram:IssuerAssignedID", $invoice->getPurchaseOrderReference());
+        }
+        if ($invoice->getSalesOrderReference() !== null) {
+            $agreement->add("ram:SellerOrderReferencedDocument")
+                ->add("ram:IssuerAssignedID", $invoice->getSalesOrderReference());
+        }
+        if ($invoice->getContractReference() !== null) {
+            $agreement->add("ram:ContractReferencedDocument")
+                ->add("ram:IssuerAssignedID", $invoice->getContractReference());
+        }
     }
 
     private function addHeaderDelivery(UXML $parent, Invoice $invoice): void
     {
+        $deliveryDate = $invoice->getDelivery()?->getDate() ?? $invoice->getIssueDate();
         $parent->add("ram:ApplicableHeaderTradeDelivery")
             ->add("ram:ActualDeliverySupplyChainEvent")
             ->add("ram:OccurrenceDateTime")
-            ->add("udt:DateTimeString", $invoice->getIssueDate()?->format("Ymd"), [
+            ->add("udt:DateTimeString", $deliveryDate?->format("Ymd"), [
                 "format" => "102"
             ]);
     }
@@ -253,6 +317,17 @@ class CiiWriter extends AbstractWriter
     {
         $settlement = $parent->add("ram:ApplicableHeaderTradeSettlement");
         $settlement->add("ram:InvoiceCurrencyCode", $invoice->getCurrency());
+        if ($invoice->getVatCurrency() !== null) {
+            $settlement->add("ram:TaxCurrencyCode", $invoice->getVatCurrency());
+        }
+        $firstPayment = $invoice->getPayments()[0] ?? null;
+        if ($firstPayment?->getId() !== null) {
+            $settlement->add("ram:PaymentReference", $firstPayment->getId());
+        }
+        if ($invoice->getBuyerAccountingReference() !== null) {
+            $settlement->add("ram:ReceivableSpecifiedTradeAccountingAccount")
+                ->add("ram:ID", $invoice->getBuyerAccountingReference());
+        }
         $this->addPaymentMeans($settlement, $invoice);
 
         $totals = $invoice->getTotals();
@@ -298,6 +373,23 @@ class CiiWriter extends AbstractWriter
          *    + la TVA recalculée.
          */
         $this->addMonetarySummation($settlement, $invoice);
+
+        /**
+         * 5) Référence(s) à la (aux) facture(s) antérieure(s) — BT-25 / BT-26.
+         *    Obligatoire pour un avoir (BR-FR-CO-05). Positionné en dernier :
+         *    dans HeaderTradeSettlementType, InvoiceReferencedDocument vient
+         *    APRÈS SpecifiedTradeSettlementHeaderMonetarySummation.
+         */
+        foreach ($invoice->getPrecedingInvoiceReferences() as $ref) {
+            $doc = $settlement->add("ram:InvoiceReferencedDocument");
+            $doc->add("ram:IssuerAssignedID", $ref->getValue());
+            if ($ref->getIssueDate() !== null) {
+                $doc->add("ram:FormattedIssueDateTime")
+                    ->add("qdt:DateTimeString", $ref->getIssueDate()->format("Ymd"), [
+                        "format" => "102"
+                    ]);
+            }
+        }
     }
 
     /**
@@ -563,7 +655,9 @@ class CiiWriter extends AbstractWriter
         }
 
         // ✅ BT-107 = Σ BT-92 (uniquement pour les ALLOWANCES document)
-        if (!$isCharge) {
+        if ($isCharge) {
+            $this->headerChargeTotal += $numericActual;
+        } else {
             $this->headerAllowanceTotal += $numericActual;
         }
     }
@@ -594,7 +688,15 @@ class CiiWriter extends AbstractWriter
         foreach ($invoice->getPayments() as $payment) {
             $meansCode = $payment->getMeansCode();
             $meansText = $payment->getMeansText();
-            $transfers = $payment->getTransfers();
+            $transfers = array_values(array_filter(
+                $payment->getTransfers(),
+                fn ($transfer) => $this->hasValue($transfer->getAccountId()),
+            ));
+
+            // A bank transfer without a beneficiary account is invalid under EN 16931.
+            if ($meansCode === '58' && empty($transfers)) {
+                continue;
+            }
 
             if ($meansCode === null && $meansText === null && empty($transfers)) {
                 continue;
@@ -613,12 +715,12 @@ class CiiWriter extends AbstractWriter
                 $accountName = $transfer->getAccountName();
                 $provider = $transfer->getProvider();
 
-                if ($accountId !== null || $accountName !== null) {
+                if ($this->hasValue($accountId) || $this->hasValue($accountName)) {
                     $account = $xml->add("ram:PayeePartyCreditorFinancialAccount");
-                    if ($accountId !== null) {
+                    if ($this->hasValue($accountId)) {
                         $account->add("ram:IBANID", $accountId);
                     }
-                    if ($accountName !== null) {
+                    if ($this->hasValue($accountName)) {
                         $account->add("ram:AccountName", $accountName);
                     }
                 }
@@ -633,16 +735,13 @@ class CiiWriter extends AbstractWriter
 
     private function addMonetarySummation(UXML $parent, Invoice $invoice): void
     {
-        $currency = $invoice->getCurrency();
+        $totals = $invoice->getTotals();
+        $currency = $totals->currency;
 
         $sum = $parent->add("ram:SpecifiedTradeSettlementHeaderMonetarySummation");
 
         // BT-106 = Σ BT-131 (donc Σ LineTotalAmount des lignes)
-        $lineTotal = 0.0;
-        foreach ($invoice->getLines() as $line) {
-            $lineTotal += (float)$line->getNetAmount();
-        }
-        $lineTotal = round($lineTotal, 2);
+        $lineTotal = round((float) $totals->netAmount, 2);
         $sum->add("ram:LineTotalAmount", $this->formatCurrency($lineTotal));
 
         // BT-107 = Σ BT-92 (exactement ce qui a été écrit)
@@ -650,9 +749,13 @@ class CiiWriter extends AbstractWriter
         if ($allowanceTotal > 0) {
             $sum->add("ram:AllowanceTotalAmount", $this->formatCurrency($allowanceTotal));
         }
+        $chargeTotal = round($this->headerChargeTotal, 2);
+        if ($chargeTotal > 0) {
+            $sum->add("ram:ChargeTotalAmount", $this->formatCurrency($chargeTotal));
+        }
 
         // BT-109 = base taxable
-        $taxBasis = round($lineTotal - $allowanceTotal, 2);
+        $taxBasis = round($lineTotal - $allowanceTotal + $chargeTotal, 2);
         $sum->add("ram:TaxBasisTotalAmount", $this->formatCurrency($taxBasis));
 
         // TVA recalculée
@@ -668,7 +771,14 @@ class CiiWriter extends AbstractWriter
         // BT-112
         $grandTotal = round($taxBasis + $vatTotal, 2);
         $sum->add("ram:GrandTotalAmount", $this->formatCurrency($grandTotal));
-        $sum->add("ram:DuePayableAmount", $this->formatCurrency($grandTotal));
+        if ((float) $totals->paidAmount > 0) {
+            $sum->add("ram:TotalPrepaidAmount", $this->formatCurrency((float) $totals->paidAmount));
+        }
+        if ((float) $totals->roundingAmount !== 0.0) {
+            $sum->add("ram:RoundingAmount", $this->formatCurrency((float) $totals->roundingAmount));
+        }
+        $duePayable = round($grandTotal - (float) $totals->paidAmount + (float) $totals->roundingAmount, 2);
+        $sum->add("ram:DuePayableAmount", $this->formatCurrency($duePayable));
     }
 
     /* ================= PARTIES ================= */
@@ -703,29 +813,31 @@ class CiiWriter extends AbstractWriter
             }
         }
 
-        if ($organizationIdentifier === null) {
-            $organizationIdentifier = $party->getCompanyId();
-        }
-
-        if ($organizationIdentifier === null) {
+        if ($party->getCompanyId()?->getScheme() === '0002') {
+            $org = $parent->add("ram:SpecifiedLegalOrganization");
+            $org->add("ram:ID", $party->getCompanyId()->getValue(), [
+                "schemeID" => "0002"
+            ]);
             return;
         }
 
-        $attributes = [];
-        $scheme = $organizationIdentifier->getScheme();
-        if ($scheme !== null) {
-            $attributes['schemeID'] = $scheme;
-        }
-
-        $org = $parent->add("ram:SpecifiedLegalOrganization");
-        $org->add("ram:ID", $organizationIdentifier->getValue(), $attributes);
+        throw new \Exception("Missing legal organization identifier (0002)");
     }
 
     private function addPostalAddress(UXML $parent, Party $party): void
     {
         $addr = $parent->add("ram:PostalTradeAddress");
         $addr->add("ram:PostcodeCode", $party->getPostalCode());
-        $addr->add("ram:LineOne", implode("\n", $party->getAddress()));
+        $address = $party->getAddress();
+        if ($this->hasValue($address[0] ?? null)) {
+            $addr->add("ram:LineOne", $address[0]);
+        }
+        if ($this->hasValue($address[1] ?? null)) {
+            $addr->add("ram:LineTwo", $address[1]);
+        }
+        if ($this->hasValue($address[2] ?? null)) {
+            $addr->add("ram:LineThree", $address[2]);
+        }
         $addr->add("ram:CityName", $party->getCity());
         $addr->add("ram:CountryID", $party->getCountry());
     }
@@ -754,5 +866,10 @@ class CiiWriter extends AbstractWriter
             ->add("ram:ID", $vatNumber, [
                 "schemeID" => "VA"
             ]);
+    }
+
+    private function hasValue(?string $value): bool
+    {
+        return $value !== null && trim($value) !== '';
     }
 }

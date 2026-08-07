@@ -1,18 +1,83 @@
 <?php
 namespace Einvoicing\Cdar;
 
+use DateTime;
+
 /**
  * Detailed CDAR status information including reasons and characteristics.
  */
 class SpecifiedDocumentStatus
 {
+    private ?DateTime $referenceDateTime = null;
+    private ?string $processConditionCode = null;
+    private ?string $processCondition = null;
     private ?string $reasonCode = null;
     private ?string $reason = null;
     private ?string $requestedActionCode = null;
     private ?string $requestedAction = null;
     private ?int $sequenceNumeric = null;
+    private ?string $includedNoteContentCode = null;
+    /** @var array<int, array{content: string, languageId: ?string}> */
+    private array $includedNotes = [];
     /** @var SpecifiedDocumentCharacteristic[] */
     private array $characteristics = [];
+
+    /**
+     * Get the status reference date-time.
+     * Business meaning: timestamp when this lifecycle event occurred.
+     */
+    public function getReferenceDateTime(): ?DateTime
+    {
+        return $this->referenceDateTime;
+    }
+
+    /**
+     * Set the status reference date-time.
+     * Business meaning: timestamp when this lifecycle event occurred.
+     */
+    public function setReferenceDateTime(?DateTime $referenceDateTime): self
+    {
+        $this->referenceDateTime = $referenceDateTime;
+        return $this;
+    }
+
+    /**
+     * Get the process condition code.
+     * Business meaning: detailed lifecycle status code.
+     */
+    public function getProcessConditionCode(): ?string
+    {
+        return $this->processConditionCode;
+    }
+
+    /**
+     * Set the process condition code.
+     * Business meaning: detailed lifecycle status code.
+     */
+    public function setProcessConditionCode(?string $processConditionCode): self
+    {
+        $this->processConditionCode = $processConditionCode;
+        return $this;
+    }
+
+    /**
+     * Get the process condition label.
+     * Business meaning: lifecycle status label as exchanged in CDAR.
+     */
+    public function getProcessCondition(): ?string
+    {
+        return $this->processCondition;
+    }
+
+    /**
+     * Set the process condition label.
+     * Business meaning: lifecycle status label as exchanged in CDAR.
+     */
+    public function setProcessCondition(?string $processCondition): self
+    {
+        $this->processCondition = $processCondition;
+        return $this;
+    }
 
     /**
      * Get the reason code.
@@ -106,6 +171,53 @@ class SpecifiedDocumentStatus
     public function setSequenceNumeric(?int $sequenceNumeric): self
     {
         $this->sequenceNumeric = $sequenceNumeric;
+        return $this;
+    }
+
+    public function getIncludedNoteContentCode(): ?string
+    {
+        return $this->includedNoteContentCode;
+    }
+
+    public function setIncludedNoteContentCode(?string $includedNoteContentCode): self
+    {
+        $this->includedNoteContentCode = $includedNoteContentCode;
+        return $this;
+    }
+
+    /**
+     * @return array<int, array{content: string, languageId: ?string}>
+     */
+    public function getIncludedNotes(): array
+    {
+        return $this->includedNotes;
+    }
+
+    /**
+     * @param array<int, array{content: string, languageId?: ?string}> $includedNotes
+     */
+    public function setIncludedNotes(array $includedNotes): self
+    {
+        $this->includedNotes = [];
+        foreach ($includedNotes as $note) {
+            if (!isset($note['content'])) {
+                continue;
+            }
+            $this->addIncludedNote((string) $note['content'], $note['languageId'] ?? null);
+        }
+        return $this;
+    }
+
+    public function addIncludedNote(string $content, ?string $languageId = null): self
+    {
+        $content = trim($content);
+        if ($content === '') {
+            return $this;
+        }
+        $this->includedNotes[] = [
+            'content' => $content,
+            'languageId' => $languageId,
+        ];
         return $this;
     }
 
