@@ -60,6 +60,15 @@
           <Percent>20.00</Percent>
         </TaxCategory>
       </TaxSubTotal>
+      <Line>
+        <BilledQuantity UnitCode="C62">1.00</BilledQuantity>
+        <Price>
+          <PriceAmount>1000.00</PriceAmount>
+        </Price>
+        <Product>
+          <Name>Line</Name>
+        </Product>
+      </Line>
     </Invoice>
   </TransactionsReport>
 </Report>

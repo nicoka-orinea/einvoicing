@@ -15,6 +15,9 @@ enum TransactionCategoryCode: string
     case NOT_SUBJECT_TO_VAT = 'TNT1';
     case MARGIN_SCHEME = 'TMA1';
 
+    /**
+     * Get an English label for UI and logs.
+     */
     public function label(): string
     {
         return match ($this) {

@@ -13,6 +13,9 @@ enum IssuerRoleCode: string
     case SELLER = 'SE';
     case BUYER = 'BY';
 
+    /**
+     * Get an English label for UI and logs.
+     */
     public function label(): string
     {
         return match ($this) {

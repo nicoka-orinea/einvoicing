@@ -4,7 +4,6 @@ namespace Einvoicing\Flux10;
 
 use DateTimeInterface;
 use Einvoicing\Flux10\Enums\TransmissionTypeCode;
-use Einvoicing\Flux10\Traits\ReportValidationTrait;
 use OutOfBoundsException;
 use function array_splice;
 use function count;

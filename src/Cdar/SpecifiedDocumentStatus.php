@@ -174,11 +174,17 @@ class SpecifiedDocumentStatus
         return $this;
     }
 
+    /**
+     * Get the note content code.
+     */
     public function getIncludedNoteContentCode(): ?string
     {
         return $this->includedNoteContentCode;
     }
 
+    /**
+     * Set the note content code.
+     */
     public function setIncludedNoteContentCode(?string $includedNoteContentCode): self
     {
         $this->includedNoteContentCode = $includedNoteContentCode;
@@ -208,6 +214,12 @@ class SpecifiedDocumentStatus
         return $this;
     }
 
+    /**
+     * Add an included note.
+     *
+     * @param string      $content    Note content
+     * @param string|null $languageId Optional language identifier
+     */
     public function addIncludedNote(string $content, ?string $languageId = null): self
     {
         $content = trim($content);

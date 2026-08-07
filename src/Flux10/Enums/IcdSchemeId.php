@@ -99,6 +99,9 @@ enum IcdSchemeId: string
         return $this === self::SIREN || $this === self::EU_OUTSIDE_FRANCE;
     }
 
+    /**
+     * Get an English label for UI and logs.
+     */
     public function label(): string
     {
         return match ($this) {
