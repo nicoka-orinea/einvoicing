@@ -84,7 +84,7 @@ final class UblWriterTest extends TestCase {
             ->addLine((new InvoiceLine)->setName('Line #3')->setPrice(0.56)->setVatRate(10)->setQuantity(2))
             ->addLine((new InvoiceLine)->setName('Line #4')->setPrice(0.56)->setVatRate(10)->setQuantity(2))
             ->addAllowance((new AllowanceOrCharge)->setReason('5% discount')->setAmount(5)->markAsPercentage()->setVatRate(21))
-            ->addAttachment((new Attachment)->setId(new Identifier('INV-123', 'ABT')))
+            ->setInvoicedObjectIdentifier(new Identifier('INV-123', 'ABT'))
             ->addAttachment($externalAttachment)
             ->addAttachment($embeddedAttachment);
         

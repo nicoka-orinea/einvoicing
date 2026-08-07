@@ -236,10 +236,86 @@ class Invoice {
 
     /**
      * Forwarder's credit note
-     * 
+     *
      * Document/message for providing credit information to the relevant party.
      */
     const TYPE_FORWARDERS_CREDIT_NOTE = 532;
+
+    /**
+     * Self-billed invoice
+     *
+     * "Facture auto-facturée" (French rule G1.01).
+     */
+    const TYPE_SELF_BILLED_INVOICE = 389;
+
+    /**
+     * Corrective invoice
+     *
+     * "Facture rectificative" (French rule G1.01).
+     */
+    const TYPE_CORRECTIVE_INVOICE = 384;
+
+    /**
+     * Self-billed credit note
+     *
+     * "Avoir auto-facturé" (French rule G1.01).
+     */
+    const TYPE_SELF_BILLED_CREDIT_NOTE = 261;
+
+    /**
+     * Self-billed factored invoice
+     *
+     * "Facture auto-facturée affacturée" (French rule G1.01).
+     */
+    const TYPE_SELF_BILLED_FACTORED_INVOICE = 501;
+
+    /**
+     * Self-billed prepayment invoice
+     *
+     * "Facture d'acompte auto-facturée" (French rule G1.01).
+     */
+    const TYPE_SELF_BILLED_PREPAYMENT_INVOICE = 500;
+
+    /**
+     * Self-billed corrective invoice
+     *
+     * "Facture rectificative auto-facturée" (French rule G1.01).
+     */
+    const TYPE_SELF_BILLED_CORRECTIVE_INVOICE = 471;
+
+    /**
+     * Factored corrective invoice
+     *
+     * "Facture rectificative affacturée" (French rule G1.01).
+     */
+    const TYPE_FACTORED_CORRECTIVE_INVOICE = 472;
+
+    /**
+     * Self-billed factored corrective invoice
+     *
+     * "Facture rectificative auto-facturée affacturée" (French rule G1.01).
+     */
+    const TYPE_SELF_BILLED_FACTORED_CORRECTIVE_INVOICE = 473;
+
+    /**
+     * Self-billed factored credit note
+     *
+     * "Avoir auto-facturé affacturé" (French rule G1.01).
+     */
+    const TYPE_SELF_BILLED_FACTORED_CREDIT_NOTE = 502;
+
+    /**
+     * Prepayment credit note
+     *
+     * "Avoir de facture d'acompte" (French rule G1.01).
+     */
+    const TYPE_PREPAYMENT_CREDIT_NOTE = 503;
+
+    /** UNTDID 1001 codes rendered as /CreditNote in UBL */
+    const CREDIT_NOTE_TYPES = [81, 83, 261, 381, 396, 502, 503, 532];
+
+    /** Invoice types allowed by French rule G1.01 */
+    const FR_ALLOWED_TYPES = [380, 389, 393, 501, 386, 500, 384, 471, 472, 473, 261, 381, 396, 502, 503];
 
     protected $preset = null;
     protected $roundingMatrix = null;
@@ -252,6 +328,7 @@ class Invoice {
     protected $issueDate = null;
     protected $dueDate = null;
     protected $taxPointDate = null;
+    protected $vatPointDateCode = null;
     /** @var string[] */
     protected $notes = [];
     protected $buyerReference = null;
@@ -260,12 +337,15 @@ class Invoice {
     protected $tenderOrLotReference = null;
     protected $contractReference = null;
     protected $projectReference = null;
+    protected $despatchAdviceReference = null;
+    protected $invoicedObjectIdentifier = null;
     protected $paidAmount = 0;
     protected $roundingAmount = 0;
     protected $customVatAmount = null;
     protected $seller = null;
     protected $buyer = null;
     protected $payee = null;
+    protected $taxRepresentative = null;
     protected $delivery = null;
     /** @var Payment[] */
     protected $payments = [];
@@ -513,6 +593,96 @@ class Invoice {
      */
     public function setTaxPointDate(?DateTime $taxPointDate): self {
         $this->taxPointDate = $taxPointDate;
+        return $this;
+    }
+
+
+    /**
+     * Get VAT point date code (BT-8)
+     *
+     * UNTDID 2005 subset used by EN 16931: "3" (invoice date), "35" (delivery
+     * date) and "432" (payment date); the French PPF subset is "5", "29", "72".
+     * Mutually exclusive with the tax point date (BT-7, rule BR-CO-3). No value
+     * check is performed here, the applicable preset is responsible for it.
+     * @return string|null VAT point date code
+     */
+    public function getVatPointDateCode(): ?string {
+        return $this->vatPointDateCode;
+    }
+
+
+    /**
+     * Set VAT point date code (BT-8)
+     * @param  string|null $code VAT point date code
+     * @return self              Invoice instance
+     */
+    public function setVatPointDateCode(?string $code): self {
+        $this->vatPointDateCode = $code;
+        return $this;
+    }
+
+
+    /**
+     * Get seller tax representative (BG-11)
+     *
+     * A tax representative carries a name (BT-62), a VAT identifier (BT-63) and
+     * a postal address (BG-12).
+     * @return Party|null Seller tax representative
+     */
+    public function getTaxRepresentative(): ?Party {
+        return $this->taxRepresentative;
+    }
+
+
+    /**
+     * Set seller tax representative (BG-11)
+     * @param  Party|null $party Seller tax representative
+     * @return self              Invoice instance
+     */
+    public function setTaxRepresentative(?Party $party): self {
+        $this->taxRepresentative = $party;
+        return $this;
+    }
+
+
+    /**
+     * Get despatch advice reference (BT-16)
+     * @return string|null Despatch advice reference
+     */
+    public function getDespatchAdviceReference(): ?string {
+        return $this->despatchAdviceReference;
+    }
+
+
+    /**
+     * Set despatch advice reference (BT-16)
+     * @param  string|null $reference Despatch advice reference
+     * @return self                   Invoice instance
+     */
+    public function setDespatchAdviceReference(?string $reference): self {
+        $this->despatchAdviceReference = $reference;
+        return $this;
+    }
+
+
+    /**
+     * Get invoiced object identifier (BT-18)
+     *
+     * The identifier scheme is BT-18-1.
+     * @return Identifier|null Invoiced object identifier
+     */
+    public function getInvoicedObjectIdentifier(): ?Identifier {
+        return $this->invoicedObjectIdentifier;
+    }
+
+
+    /**
+     * Set invoiced object identifier (BT-18)
+     * @param  Identifier|null $identifier Invoiced object identifier
+     * @return self                        Invoice instance
+     */
+    public function setInvoicedObjectIdentifier(?Identifier $identifier): self {
+        $this->invoicedObjectIdentifier = $identifier;
         return $this;
     }
 

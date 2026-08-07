@@ -21,6 +21,7 @@ class InvoiceLine {
     protected $quantity = 1;
     protected $unit = "C62"; // TODO: add constants
     protected $price = null;
+    protected $grossPrice = null;
     protected $baseQuantity = 1;
 
     use AllowanceOrChargeTrait;
@@ -270,6 +271,30 @@ class InvoiceLine {
         if ($baseQuantity !== null) {
             $this->setBaseQuantity($baseQuantity);
         }
+        return $this;
+    }
+
+
+    /**
+     * Get item gross price (BT-148), for the same base quantity as the net price
+     *
+     * The item price discount (BT-147) is derived from it as
+     * `grossPrice - price`, so a gross price must be greater than or equal to
+     * the net price (checked by rule BR-28).
+     * @return float|null Item gross price
+     */
+    public function getGrossPrice(): ?float {
+        return $this->grossPrice;
+    }
+
+
+    /**
+     * Set item gross price (BT-148)
+     * @param  float|null $grossPrice Item gross price
+     * @return self                   Invoice line instance
+     */
+    public function setGrossPrice(?float $grossPrice): self {
+        $this->grossPrice = $grossPrice;
         return $this;
     }
 

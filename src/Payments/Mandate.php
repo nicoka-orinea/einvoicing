@@ -4,6 +4,7 @@ namespace Einvoicing\Payments;
 class Mandate {
     protected $reference = null;
     protected $account = null;
+    protected $creditorIdentifier = null;
 
     /**
      * Get mandate reference ID
@@ -41,6 +42,31 @@ class Mandate {
      */
     public function setAccount(?string $account): self {
         $this->account = $account;
+        return $this;
+    }
+
+
+    /**
+     * Get bank assigned creditor identifier (BT-90)
+     *
+     * The SEPA creditor identifier ("Identifiant Créancier SEPA"). Only written
+     * to CII documents, as ram:CreditorReferenceID: EN 16931 maps BT-90 to
+     * cac:PaymentMeans/cac:PayeeFinancialAccount in UBL, which the payment
+     * mandate does not carry.
+     * @return string|null Bank assigned creditor identifier
+     */
+    public function getCreditorIdentifier(): ?string {
+        return $this->creditorIdentifier;
+    }
+
+
+    /**
+     * Set bank assigned creditor identifier (BT-90)
+     * @param  string|null $creditorIdentifier Bank assigned creditor identifier
+     * @return self                            Mandate instance
+     */
+    public function setCreditorIdentifier(?string $creditorIdentifier): self {
+        $this->creditorIdentifier = $creditorIdentifier;
         return $this;
     }
 }

@@ -124,6 +124,12 @@ class UblWriter extends AbstractWriter {
             }
         }
 
+        // BT-16: Despatch advice reference
+        $despatchAdviceReference = $invoice->getDespatchAdviceReference();
+        if ($despatchAdviceReference !== null) {
+            $xml->add('cac:DespatchDocumentReference')->add('cbc:ID', $despatchAdviceReference);
+        }
+
         // BT-17: Tender or lot reference (for invoice profile)
         if (!$isCreditNoteProfile) {
             $this->addTenderOrLotReferenceNode($xml, $invoice);
@@ -133,6 +139,14 @@ class UblWriter extends AbstractWriter {
         $contractReference = $invoice->getContractReference();
         if ($contractReference !== null) {
             $xml->add('cac:ContractDocumentReference')->add('cbc:ID', $contractReference);
+        }
+
+        // BT-18: Invoiced object identifier
+        $invoicedObjectIdentifier = $invoice->getInvoicedObjectIdentifier();
+        if ($invoicedObjectIdentifier !== null) {
+            $objectXml = $xml->add('cac:AdditionalDocumentReference');
+            $this->addIdentifierNode($objectXml, 'cbc:ID', $invoicedObjectIdentifier);
+            $objectXml->add('cbc:DocumentTypeCode', '130');
         }
 
         // BG-24: Attachments node
@@ -1009,19 +1023,12 @@ class UblWriter extends AbstractWriter {
      */
     private function addAttachmentNode(UXML $parent, Attachment $attachment) {
         $xml = $parent->add('cac:AdditionalDocumentReference');
-        $isInvoiceObjectReference = (!$attachment->hasExternalUrl() && !$attachment->hasContents());
+        $hasDocument = ($attachment->hasExternalUrl() || $attachment->hasContents());
 
         // BT-122: Supporting document reference
         $identifier = $attachment->getId();
         if ($identifier !== null) {
             $this->addIdentifierNode($xml, 'cbc:ID', $identifier);
-        }
-
-        // BT-18: Document type code
-        if ($isInvoiceObjectReference) {
-            // Code "130" MUST be used to indicate an invoice object reference
-            // Not used for other additional documents
-            $xml->add('cbc:DocumentTypeCode', '130');
         }
 
         // BT-123: Supporting document description
@@ -1030,9 +1037,10 @@ class UblWriter extends AbstractWriter {
             $xml->add('cbc:DocumentDescription', $description);
         }
 
-        // Attachment inner node
-        if ($isInvoiceObjectReference) {
-            return; // Skip inner node in this case
+        // Attachment inner node. Document type code "130" is reserved for the
+        // invoiced object identifier (BT-18) and is not written here.
+        if (!$hasDocument) {
+            return;
         }
         $attXml = $xml->add('cac:Attachment');
 

@@ -183,8 +183,23 @@ class UblReader extends AbstractReader {
             $invoice->setContractReference($contractReferenceNode->asText());
         }
 
-        // BG-24: Attachment nodes
+        // BT-16: Despatch advice reference
+        $despatchAdviceReferenceNode = $xml->get("{{$cac}}DespatchDocumentReference/{{$cbc}}ID");
+        if ($despatchAdviceReferenceNode !== null) {
+            $invoice->setDespatchAdviceReference($despatchAdviceReferenceNode->asText());
+        }
+
+        // BT-18 and BG-24: Invoiced object identifier and attachment nodes
         foreach ($xml->getAll("{{$cac}}AdditionalDocumentReference") as $node) {
+            $documentTypeCode = $node->get("{{$cbc}}DocumentTypeCode")?->asText();
+            $identifierNode = $node->get("{{$cbc}}ID");
+            // Code "130" identifies an invoice object reference, not a supporting document
+            if ($documentTypeCode === '130') {
+                if ($identifierNode !== null) {
+                    $invoice->setInvoicedObjectIdentifier($this->parseIdentifierNode($identifierNode));
+                }
+                continue;
+            }
             $invoice->addAttachment($this->parseAttachmentNode($node));
         }
 
