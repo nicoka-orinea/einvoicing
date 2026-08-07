@@ -68,6 +68,13 @@ class UblWriter extends AbstractWriter {
             $xml->add('cbc:DueDate', $dueDate->format('Y-m-d'));
         }
 
+        // BT-7: Tax point date. In the credit note schema sequence it comes
+        // before the type code, in the invoice one after the notes.
+        $taxPointDate = $invoice->getTaxPointDate();
+        if ($isCreditNoteProfile && $taxPointDate !== null) {
+            $xml->add('cbc:TaxPointDate', $taxPointDate->format('Y-m-d'));
+        }
+
         // BT-3: Invoice type code
         $typeCodeName = $isCreditNoteProfile ? "cbc:CreditNoteTypeCode" : "cbc:InvoiceTypeCode";
         $xml->add($typeCodeName, (string) $invoice->getType());
@@ -81,9 +88,7 @@ class UblWriter extends AbstractWriter {
             $xml->add('cbc:Note', $value);
         }
 
-        // BT-7: Tax point date
-        $taxPointDate = $invoice->getTaxPointDate();
-        if ($taxPointDate !== null) {
+        if (!$isCreditNoteProfile && $taxPointDate !== null) {
             $xml->add('cbc:TaxPointDate', $taxPointDate->format('Y-m-d'));
         }
 
@@ -108,8 +113,8 @@ class UblWriter extends AbstractWriter {
             $xml->add('cbc:BuyerReference', $buyerReference);
         }
 
-        // BG-14: Invoice period
-        $this->addPeriodNode($xml, $invoice);
+        // BG-14: Invoice period, carrying BT-8 as its description code
+        $this->addPeriodNode($xml, $invoice, $invoice->getVatPointDateCode());
 
         // Order reference node
         $this->addOrderReferenceNode($xml, $invoice);
@@ -149,6 +154,15 @@ class UblWriter extends AbstractWriter {
             $objectXml->add('cbc:DocumentTypeCode', '130');
         }
 
+        // BT-11: Project reference. The credit note schema has no
+        // cac:ProjectReference, so it travels as a document reference of type 50.
+        $projectReference = $invoice->getProjectReference();
+        if ($isCreditNoteProfile && $projectReference !== null) {
+            $projectXml = $xml->add('cac:AdditionalDocumentReference');
+            $projectXml->add('cbc:ID', $projectReference);
+            $projectXml->add('cbc:DocumentTypeCode', '50');
+        }
+
         // BG-24: Attachments node
         foreach ($invoice->getAttachments() as $attachment) {
             $this->addAttachmentNode($xml, $attachment);
@@ -159,9 +173,7 @@ class UblWriter extends AbstractWriter {
             $this->addTenderOrLotReferenceNode($xml, $invoice);
         }
 
-        // BT-11: Project reference
-        $projectReference = $invoice->getProjectReference();
-        if ($projectReference !== null) {
+        if (!$isCreditNoteProfile && $projectReference !== null) {
             $xml->add('cac:ProjectReference')->add('cbc:ID', $projectReference);
         }
 
@@ -183,15 +195,24 @@ class UblWriter extends AbstractWriter {
             $this->addPayeeNode($xml, $payee);
         }
 
+        // BG-11: Seller tax representative
+        $taxRepresentative = $invoice->getTaxRepresentative();
+        if ($taxRepresentative !== null) {
+            $this->addTaxRepresentativeNode($xml, $taxRepresentative);
+        }
+
         // Delivery node
         $delivery = $invoice->getDelivery();
         if ($delivery !== null) {
             $this->addDeliveryNode($xml, $delivery);
         }
 
-        // Payment means nodes
+        // Payment means nodes. A credit note has no cbc:DueDate, so BT-9 travels
+        // as the payment due date of the first payment means only.
+        $isFirstPayment = true;
         foreach ($invoice->getPayments() as $payment) {
-            $this->addPaymentMeansNode($xml, $payment, $isCreditNoteProfile ? $dueDate : null);
+            $this->addPaymentMeansNode($xml, $payment, ($isCreditNoteProfile && $isFirstPayment) ? $dueDate : null);
+            $isFirstPayment = false;
         }
 
         // BT-20: Payment terms
@@ -237,14 +258,7 @@ class UblWriter extends AbstractWriter {
      * @return boolean          Whether document should use invoice or credit note profiles
      */
     private function isCreditNoteProfile(Invoice $invoice): bool {
-        $type = $invoice->getType();
-        return in_array($type, [
-            Invoice::TYPE_CREDIT_NOTE_RELATED_TO_GOODS_OR_SERVICES,
-            Invoice::TYPE_CREDIT_NOTE_RELATED_TO_FINANCIAL_ADJUSTMENTS,
-            Invoice::TYPE_CREDIT_NOTE,
-            Invoice::TYPE_FACTORED_CREDIT_NOTE,
-            Invoice::TYPE_FORWARDERS_CREDIT_NOTE
-        ]);
+        return in_array($invoice->getType(), Invoice::CREDIT_NOTE_TYPES, true);
     }
 
 
@@ -264,13 +278,14 @@ class UblWriter extends AbstractWriter {
 
     /**
      * Add period node
-     * @param UXML                $parent Parent element
-     * @param Invoice|InvoiceLine $source Source instance
+     * @param UXML                $parent          Parent element
+     * @param Invoice|InvoiceLine $source          Source instance
+     * @param string|null         $descriptionCode BT-8 VAT point date code, document level only
      */
-    private function addPeriodNode(UXML $parent, $source) {
+    private function addPeriodNode(UXML $parent, $source, ?string $descriptionCode=null) {
         $startDate = $source->getPeriodStartDate();
         $endDate = $source->getPeriodEndDate();
-        if ($startDate === null && $endDate === null) return;
+        if ($startDate === null && $endDate === null && $descriptionCode === null) return;
 
         $xml = $parent->add('cac:InvoicePeriod');
 
@@ -282,6 +297,11 @@ class UblWriter extends AbstractWriter {
         // Period end date
         if ($endDate !== null) {
             $xml->add('cbc:EndDate', $endDate->format('Y-m-d'));
+        }
+
+        // BT-8: VAT point date code
+        if ($descriptionCode !== null) {
+            $xml->add('cbc:DescriptionCode', $descriptionCode);
         }
     }
 
@@ -547,6 +567,36 @@ class UblWriter extends AbstractWriter {
         if ($companyId !== null) {
             $legalEntityNode = $xml->add('cac:PartyLegalEntity');
             $this->addIdentifierNode($legalEntityNode, 'cbc:CompanyID', $companyId);
+        }
+    }
+
+
+    /**
+     * Add seller tax representative node (BG-11)
+     * @param UXML  $parent Invoice element
+     * @param Party $party  Party instance
+     */
+    private function addTaxRepresentativeNode(UXML $parent, Party $party) {
+        $xml = $parent->add('cac:TaxRepresentativeParty');
+
+        // BT-62: Tax representative name
+        $name = $party->getName();
+        if ($name !== null) {
+            $xml->add('cac:PartyName')->add('cbc:Name', $name);
+        }
+
+        // BG-12: Tax representative postal address
+        $addressNode = $this->addPostalAddressNode($xml, 'cac:PostalAddress', $party);
+        if ($addressNode->isEmpty()) {
+            $addressNode->remove();
+        }
+
+        // BT-63: Tax representative VAT identifier
+        $vatNumber = $party->getVatNumber();
+        if ($vatNumber !== null) {
+            $taxNode = $xml->add('cac:PartyTaxScheme');
+            $taxNode->add('cbc:CompanyID', $vatNumber);
+            $taxNode->add('cac:TaxScheme')->add('cbc:ID', 'VAT');
         }
     }
 

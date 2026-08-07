@@ -11,8 +11,10 @@ use Einvoicing\InvoiceReference;
 use Einvoicing\Party;
 use Einvoicing\Payments\Payment;
 use Einvoicing\Presets\Peppol;
+use Einvoicing\Readers\UblReader;
 use Einvoicing\Writers\UblWriter;
 use PHPUnit\Framework\TestCase;
+use Tests\ValidatesAgainstXsd;
 use UXML\UXML;
 use const CURLOPT_HTTPHEADER;
 use const CURLOPT_POSTFIELDS;
@@ -27,6 +29,8 @@ use function random_int;
 use function time;
 
 final class UblWriterTest extends TestCase {
+    use ValidatesAgainstXsd;
+
     /** @var UblWriter */
     private $writer;
 
@@ -199,5 +203,179 @@ final class UblWriterTest extends TestCase {
 
         $this->assertSame('NA', $xml->get('cac:OrderReference/cbc:ID')->asText());
         $this->assertSame('SO-123', $xml->get('cac:OrderReference/cbc:SalesOrderID')->asText());
+    }
+
+    public function testSelfBilledCreditNoteUsesCreditNoteRoot(): void {
+        $invoice = $this->getSampleInvoice()->setType(Invoice::TYPE_SELF_BILLED_CREDIT_NOTE);
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        $this->assertSame('CreditNote', $xml->element()->localName);
+        $this->assertSame('261', $xml->get('cbc:CreditNoteTypeCode')->asText());
+        $this->assertNull($xml->get('cbc:InvoiceTypeCode'));
+    }
+
+    /** @return array<string, array{int}> */
+    public static function creditNoteTypeProvider(): array {
+        return [
+            'credit note related to goods or services' => [81],
+            'credit note related to financial adjustments' => [83],
+            'self-billed credit note' => [261],
+            'credit note' => [381],
+            'factored credit note' => [396],
+            'self-billed factored credit note' => [502],
+            'prepayment credit note' => [503],
+            "forwarder's credit note" => [532],
+        ];
+    }
+
+    /** @dataProvider creditNoteTypeProvider */
+    public function testEveryCreditNoteTypeUsesCreditNoteRoot(int $type): void {
+        $invoice = $this->getSampleInvoice()->setType($type);
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        $this->assertSame('CreditNote', $xml->element()->localName);
+        $this->assertSame((string) $type, $xml->get('cbc:CreditNoteTypeCode')->asText());
+    }
+
+    public function testCreditNoteChildrenFollowStandardUblSequence(): void {
+        $invoice = $this->getSampleInvoice()
+            ->setType(Invoice::TYPE_CREDIT_NOTE)
+            ->setTaxPointDate(new DateTime('2026-01-15'))
+            ->setProjectReference('PR-1')
+            ->setDueDate(new DateTime('2026-02-15'))
+            ->addPayment((new Payment)->setMeansCode('10')->setMeansText('In cash'));
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        $this->assertChildOrder($xml, '', self::UBL_CREDIT_NOTE_ORDER);
+    }
+
+    public function testInvoiceChildrenFollowStandardUblSequence(): void {
+        $invoice = $this->getSampleInvoice()
+            ->setTaxPointDate(new DateTime('2026-01-15'))
+            ->setProjectReference('PR-1')
+            ->setDespatchAdviceReference('DESP-1')
+            ->setTaxRepresentative((new Party)->setName('Tax Rep')->setVatNumber('FR99988877766')->setCountry('FR'))
+            ->addPayment((new Payment)->setMeansCode('10')->setMeansText('In cash'));
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        $this->assertChildOrder($xml, '', self::UBL_INVOICE_ORDER);
+    }
+
+    public function testProjectReferenceOnCreditNote(): void {
+        $invoice = $this->getSampleInvoice()
+            ->setType(Invoice::TYPE_CREDIT_NOTE)
+            ->setProjectReference('PR-1');
+
+        $contents = $this->writer->export($invoice);
+        $xml = UXML::fromString($contents);
+
+        // cac:ProjectReference does not exist in the credit note schema
+        $this->assertNull($xml->get('cac:ProjectReference'));
+        $projectReference = null;
+        foreach ($xml->getAll('cac:AdditionalDocumentReference') as $node) {
+            if ($node->get('cbc:DocumentTypeCode')?->asText() === '50') {
+                $projectReference = $node->get('cbc:ID')?->asText();
+            }
+        }
+        $this->assertSame('PR-1', $projectReference);
+        $this->assertSame('PR-1', (new UblReader())->import($contents)->getProjectReference());
+    }
+
+    public function testProjectReferenceOnInvoiceKeepsProjectReferenceNode(): void {
+        $invoice = $this->getSampleInvoice()->setProjectReference('PR-1');
+
+        $contents = $this->writer->export($invoice);
+        $xml = UXML::fromString($contents);
+
+        $this->assertSame('PR-1', $xml->get('cac:ProjectReference/cbc:ID')->asText());
+        $this->assertSame('PR-1', (new UblReader())->import($contents)->getProjectReference());
+    }
+
+    public function testTaxPointDateOrderOnCreditNote(): void {
+        $invoice = $this->getSampleInvoice()
+            ->setType(Invoice::TYPE_CREDIT_NOTE)
+            ->setTaxPointDate(new DateTime('2026-01-15'));
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        // The credit note sequence is IssueDate, TaxPointDate, CreditNoteTypeCode
+        $this->assertChildOrder($xml, '', ['IssueDate', 'TaxPointDate', 'CreditNoteTypeCode', 'Note']);
+    }
+
+    public function testTaxPointDateOrderOnInvoice(): void {
+        $invoice = $this->getSampleInvoice()->setTaxPointDate(new DateTime('2026-01-15'));
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        // The invoice sequence is InvoiceTypeCode, Note, TaxPointDate
+        $this->assertChildOrder($xml, '', ['InvoiceTypeCode', 'Note', 'TaxPointDate', 'DocumentCurrencyCode']);
+    }
+
+    public function testDueDateSinglePaymentDueDate(): void {
+        $invoice = $this->getSampleInvoice()
+            ->setType(Invoice::TYPE_CREDIT_NOTE)
+            ->setDueDate(new DateTime('2026-02-15'))
+            ->addPayment((new Payment)->setMeansCode('10'))
+            ->addPayment((new Payment)->setMeansCode('30'));
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+
+        $this->assertNull($xml->get('cbc:DueDate'));
+        $this->assertCount(1, $xml->getAll('cac:PaymentMeans/cbc:PaymentDueDate'));
+    }
+
+    public function testVatPointDateCode(): void {
+        $invoice = $this->getSampleInvoice()->setVatPointDateCode('72');
+
+        $contents = $this->writer->export($invoice);
+        $xml = UXML::fromString($contents);
+
+        $this->assertSame('72', $xml->get('cac:InvoicePeriod/cbc:DescriptionCode')->asText());
+        $this->assertSame('72', (new UblReader())->import($contents)->getVatPointDateCode());
+    }
+
+    public function testVatPointDateCodeIsWrittenWithoutPeriodDates(): void {
+        $invoice = $this->getSampleInvoice()
+            ->setPeriodStartDate(null)
+            ->setPeriodEndDate(null)
+            ->setVatPointDateCode('5');
+
+        $xml = UXML::fromString($this->writer->export($invoice));
+        $period = $xml->get('cac:InvoicePeriod');
+
+        $this->assertNotNull($period);
+        $this->assertNull($period->get('cbc:StartDate'));
+        $this->assertSame('5', $period->get('cbc:DescriptionCode')->asText());
+    }
+
+    public function testTaxRepresentative(): void {
+        $representative = (new Party)
+            ->setName('Tax Rep SARL')
+            ->setVatNumber('FR99988877766')
+            ->setAddress(['Rep Street 1'])
+            ->setPostalCode('13001')
+            ->setCity('Marseille')
+            ->setCountry('FR');
+        $invoice = $this->getSampleInvoice()->setTaxRepresentative($representative);
+
+        $contents = $this->writer->export($invoice);
+        $xml = UXML::fromString($contents);
+        $node = $xml->get('cac:TaxRepresentativeParty');
+
+        $this->assertNotNull($node);
+        $this->assertSame('Tax Rep SARL', $node->get('cac:PartyName/cbc:Name')->asText());
+        $this->assertSame('FR99988877766', $node->get('cac:PartyTaxScheme/cbc:CompanyID')->asText());
+        $this->assertSame('VAT', $node->get('cac:PartyTaxScheme/cac:TaxScheme/cbc:ID')->asText());
+        $this->assertSame('FR', $node->get('cac:PostalAddress/cac:Country/cbc:IdentificationCode')->asText());
+
+        $imported = (new UblReader())->import($contents)->getTaxRepresentative();
+        $this->assertSame('Tax Rep SARL', $imported?->getName());
+        $this->assertSame('FR99988877766', $imported?->getVatNumber());
+        $this->assertSame('FR', $imported?->getCountry());
+        $this->assertSame('Marseille', $imported?->getCity());
     }
 }

@@ -189,14 +189,21 @@ class UblReader extends AbstractReader {
             $invoice->setDespatchAdviceReference($despatchAdviceReferenceNode->asText());
         }
 
-        // BT-18 and BG-24: Invoiced object identifier and attachment nodes
+        // BT-18, BT-11 and BG-24: invoiced object identifier, project reference
+        // and attachment nodes. Codes "130" and "50" are reserved and never
+        // describe a supporting document.
         foreach ($xml->getAll("{{$cac}}AdditionalDocumentReference") as $node) {
             $documentTypeCode = $node->get("{{$cbc}}DocumentTypeCode")?->asText();
             $identifierNode = $node->get("{{$cbc}}ID");
-            // Code "130" identifies an invoice object reference, not a supporting document
             if ($documentTypeCode === '130') {
                 if ($identifierNode !== null) {
                     $invoice->setInvoicedObjectIdentifier($this->parseIdentifierNode($identifierNode));
+                }
+                continue;
+            }
+            if ($documentTypeCode === '50') {
+                if ($identifierNode !== null) {
+                    $invoice->setProjectReference($identifierNode->asText());
                 }
                 continue;
             }
@@ -225,6 +232,12 @@ class UblReader extends AbstractReader {
         $payeeNode = $xml->get("{{$cac}}PayeeParty");
         if ($payeeNode !== null) {
             $invoice->setPayee($this->parsePayeeNode($payeeNode));
+        }
+
+        // BG-11: Seller tax representative
+        $taxRepresentativeNode = $xml->get("{{$cac}}TaxRepresentativeParty");
+        if ($taxRepresentativeNode !== null) {
+            $invoice->setTaxRepresentative($this->parseTaxRepresentativeNode($taxRepresentativeNode));
         }
 
         // Delivery node
@@ -319,6 +332,14 @@ class UblReader extends AbstractReader {
         $endDateNode = $xml->get("{{$cac}}InvoicePeriod/{{$cbc}}EndDate");
         if ($endDateNode !== null) {
             $target->setPeriodEndDate(new DateTime($endDateNode->asText()));
+        }
+
+        // BT-8: VAT point date code, document level only
+        if ($target instanceof Invoice) {
+            $descriptionCodeNode = $xml->get("{{$cac}}InvoicePeriod/{{$cbc}}DescriptionCode");
+            if ($descriptionCodeNode !== null) {
+                $target->setVatPointDateCode($descriptionCodeNode->asText());
+            }
         }
     }
 
@@ -484,6 +505,38 @@ class UblReader extends AbstractReader {
         $companyIdNode = $xml->get("{{$cac}}PartyLegalEntity/{{$cbc}}CompanyID");
         if ($companyIdNode !== null) {
             $party->setCompanyId($this->parseIdentifierNode($companyIdNode));
+        }
+
+        return $party;
+    }
+
+
+    /**
+     * Parse seller tax representative node (BG-11)
+     * @param  UXML  $xml XML node
+     * @return Party      Party instance
+     */
+    private function parseTaxRepresentativeNode(UXML $xml): Party {
+        $party = new Party();
+        $cac = UblWriter::NS_CAC;
+        $cbc = UblWriter::NS_CBC;
+
+        // BT-62: Tax representative name
+        $nameNode = $xml->get("{{$cac}}PartyName/{{$cbc}}Name");
+        if ($nameNode !== null) {
+            $party->setName($nameNode->asText());
+        }
+
+        // BG-12: Tax representative postal address
+        $addressNode = $xml->get("{{$cac}}PostalAddress");
+        if ($addressNode !== null) {
+            $this->parsePostalAddressFields($addressNode, $party);
+        }
+
+        // BT-63: Tax representative VAT identifier
+        $vatNumberNode = $xml->get("{{$cac}}PartyTaxScheme/{{$cbc}}CompanyID");
+        if ($vatNumberNode !== null) {
+            $party->setVatNumber($vatNumberNode->asText());
         }
 
         return $party;
