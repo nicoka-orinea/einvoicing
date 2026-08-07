@@ -7,7 +7,7 @@ use DOMDocument;
 use Einvoicing\Flux10\AmountByRate;
 use Einvoicing\Flux10\InvoicePayment;
 use Einvoicing\Flux10\Issuer;
-use Einvoicing\Flux10\IssuerRoleCode;
+use Einvoicing\Flux10\Enums\IssuerRoleCode;
 use Einvoicing\Flux10\Sender;
 use Einvoicing\Flux10\Period;
 use Einvoicing\Flux10\Report;
@@ -74,7 +74,12 @@ final class Flux10WriterTest extends TestCase
             ->addLine((new InvoiceLine())->setName('Line')->setPrice(100)->setQuantity(1)->setVatRate(20));
 
         $writer = (new Flux10Writer())
-            ->setSender((new Sender())->setMatricule('PA01')->setName('Accredited Platform SA'));
+            ->setSender((new Sender())->setMatricule('PA01')->setName('Accredited Platform SA'))
+            ->setPeriod(
+                (new Period())
+                    ->setStartDate(new DateTime('2025-01-01'))
+                    ->setEndDate(new DateTime('2025-01-31'))
+            );
         $xml = $writer->export($invoice);
         $this->assertValidAgainstEreportingXsd($xml);
 

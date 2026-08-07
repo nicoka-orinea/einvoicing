@@ -175,6 +175,7 @@ class SpecifiedDocumentStatus
     }
 
     /**
+     * Get the note content code.
      * @deprecated Set the content code on each note with addIncludedNote()
      */
     public function getIncludedNoteContentCode(): ?string
@@ -223,6 +224,11 @@ class SpecifiedDocumentStatus
     /**
      * Add a note, with its own content code and subject code when the document
      * carries them.
+     *
+     * @param string      $content     Note content
+     * @param string|null $languageId  Optional language identifier
+     * @param string|null $contentCode Optional per-note content code
+     * @param string|null $subjectCode Optional per-note subject code
      */
     public function addIncludedNote(
         string $content,

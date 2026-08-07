@@ -8,9 +8,19 @@ use DateTimeInterface;
 use DateTimeZone;
 use Einvoicing\Exceptions\ValidationException;
 use Einvoicing\Flux10\Invoice as Flux10Invoice;
+use Einvoicing\Flux10\Line as Flux10Line;
+use Einvoicing\Flux10\Location as Flux10Location;
+use Einvoicing\Flux10\Note as Flux10Note;
+use Einvoicing\Flux10\Price as Flux10Price;
+use Einvoicing\Flux10\ReferencedDocument as Flux10ReferencedDocument;
+use Einvoicing\Flux10\AllowanceCharge as Flux10AllowanceCharge;
+use Einvoicing\Flux10\Delivery as Flux10Delivery;
 use Einvoicing\Flux10\InvoicePayment as Flux10InvoicePayment;
 use Einvoicing\Flux10\Issuer as Flux10Issuer;
-use Einvoicing\Flux10\IssuerRoleCode as Flux10IssuerRoleCode;
+use Einvoicing\Flux10\Enums\BusinessProcessCode;
+use Einvoicing\Flux10\Enums\IcdSchemeId;
+use Einvoicing\Flux10\Enums\VatCategoryCode;
+use Einvoicing\Flux10\Enums\IssuerRoleCode as Flux10IssuerRoleCode;
 use Einvoicing\Flux10\AmountByRate as Flux10AmountByRate;
 use Einvoicing\Flux10\Period as Flux10Period;
 use Einvoicing\Flux10\Report as Flux10Report;
@@ -20,13 +30,13 @@ use Einvoicing\Flux10\Transaction as Flux10Transaction;
 use Einvoicing\Flux10\TransactionPayment as Flux10TransactionPayment;
 use Einvoicing\Identifier;
 use Einvoicing\Invoice;
+use Einvoicing\InvoiceLine;
 use Einvoicing\Models\VatBreakdown as InvoiceVatBreakdown;
 use Einvoicing\Party;
 use InvalidArgumentException;
 use UXML\UXML;
 use function get_debug_type;
 use function implode;
-use function in_array;
 use function preg_match;
 use function sprintf;
 use function trim;
@@ -44,30 +54,35 @@ class Flux10Writer extends AbstractMultiWriter
     /** The timestamp belongs to the emitting platform, not to the server locale — G7.40 */
     private const TIMEZONE = 'Europe/Paris';
 
-    private const DEFAULT_TRANSMISSION_TYPE = 'IN';
-
     /** Profile identifier of the e-reporting flow — TT-29, S1.12 */
     public const EREPORTING_PROFILE = 'urn.cpro.gouv.fr:1p0:ereporting';
 
     /** VAT totals are always expressed in euros — TT-202, G6.23 */
     private const VAT_CURRENCY = 'EUR';
 
-    /**
-     * Invoicing frameworks accepted in Flux 10 — TT-28, G1.02.
-     *
-     * Kept here until the dedicated enum lands: presets populate the EN 16931 business
-     * process with their own URN (Peppol sets `urn:fdc:peppol.eu:…`), which would
-     * otherwise be forwarded as-is and rejected.
-     */
-    private const BUSINESS_PROCESS_CODES = [
-        'B1', 'S1', 'M1', 'B2', 'S2', 'M2', 'B4', 'S4', 'M4', 'S5', 'S6', 'B7', 'S7',
-    ];
+    /** Amounts carry at most 2 decimals — G1.14 */
+    private const AMOUNT_DECIMALS = 2;
+
+    /** Collected amounts and unit prices carry up to 6 — TT-95, TT-99, G7.07, G1.16 */
+    private const PRICE_DECIMALS = 6;
+
+    /** Quantities carry up to 4 decimals — TT-62, G1.15 */
+    private const QUANTITY_DECIMALS = 4;
+
+    /** An amount is capped at 19 digits, separator excluded — G1.14 */
+    private const MAX_AMOUNT_DIGITS = 19;
 
     /**
      * Emitting accredited platform, used when building a report from plain invoices.
      * @var Flux10Sender|null
      */
     private $sender = null;
+
+    /**
+     * Declared period, used when building a report from plain invoices.
+     * @var Flux10Period|null
+     */
+    private $period = null;
 
     /**
      * Get the emitting accredited platform.
@@ -90,9 +105,36 @@ class Flux10Writer extends AbstractMultiWriter
     }
 
     /**
+     * Get the declared reporting period.
+     */
+    public function getPeriod(): ?Flux10Period
+    {
+        return $this->period;
+    }
+
+    /**
+     * Set the declared reporting period (TG-7/TG-33).
+     *
+     * Without it, {@see exportAll()} infers the period from the invoice issue dates,
+     * which yields a start equal to the end as soon as a single day is reported — a
+     * period the PPF rejects (G6.25).
+     */
+    public function setPeriod(?Flux10Period $period): self
+    {
+        $this->period = $period;
+        return $this;
+    }
+
+    /**
      * Export one or more invoices, or an already prepared Flux 10 report.
      *
+     * An EN 16931 invoice carries neither the emitting platform, nor the transmission
+     * identifier, nor the declared period, so this path has to guess them — and a guessed
+     * envelope is rejected by the PPF.
+     *
      * @param array<int,Invoice|Flux10Report> $invoices Invoices or a single Flux 10 report
+     * @deprecated 0.3.0
+     * @see \Einvoicing\Flux10\ReportBuilder
      */
     public function exportAll(array $invoices): string
     {
@@ -107,16 +149,21 @@ class Flux10Writer extends AbstractMultiWriter
 
     /**
      * Export a single invoice to Flux 10 XML.
+     *
+     * @deprecated 0.3.0
+     * @see \Einvoicing\Flux10\ReportBuilder
      */
     public function export(Invoice $invoice): string
     {
+        // Both entry points are deprecated together
+        // @phan-suppress-next-line PhanDeprecatedFunction
         return $this->exportAll([$invoice]);
     }
 
     /**
      * Export an already prepared Flux 10 report to XML.
      */
-    public function exportReport(Flux10Report $report): string
+    public function exportReport(Flux10Report $report, bool $validate = true): string
     {
         $hasTransactions = !empty($report->getInvoices()) || !empty($report->getTransactions());
         $hasPayments = !empty($report->getInvoicePayments()) || !empty($report->getTransactionPayments());
@@ -127,6 +174,10 @@ class Flux10Writer extends AbstractMultiWriter
                 'never both. Split them into two transmissions.',
                 'G6.29'
             );
+        }
+
+        if ($validate) {
+            $report->validate();
         }
 
         $xml = $this->createRoot();
@@ -165,11 +216,7 @@ class Flux10Writer extends AbstractMultiWriter
         $issueDateTime = $reportDocument->add('IssueDateTime');
         $issueDateTime->add('DateTimeString', $this->formatDateTime($report->getIssueDateTime()));
 
-        $transmissionType = $report->getTransmissionType();
-        if ($transmissionType === '') {
-            $transmissionType = self::DEFAULT_TRANSMISSION_TYPE;
-        }
-        $reportDocument->add('TypeCode', $transmissionType);
+        $reportDocument->add('TypeCode', $report->getTransmissionType()->value);
 
         $sender = $report->getSender();
         if (!$sender instanceof Flux10Sender) {
@@ -271,16 +318,24 @@ class Flux10Writer extends AbstractMultiWriter
             $this->addDateNode($node, 'DueDate', $invoice->getDueDate());
             $this->addStringNode($node, 'TaxDueDateTypeCode', $invoice->getTaxDueDateTypeCode());
 
+            $this->addNotes($node, 'IncludedNote', $invoice->getNotes(), 'Subject', 'Content');
+
             $businessProcess = $node->add('BusinessProcess');
-            $this->addRequiredStringNode($businessProcess, 'ID', $invoice->getBusinessProcessId(), 'Invoice/BusinessProcess/ID');
+            $this->addRequiredStringNode($businessProcess, 'ID', $invoice->getBusinessProcessId()?->value, 'Invoice/BusinessProcess/ID');
             $this->addRequiredStringNode($businessProcess, 'TypeID', $invoice->getBusinessProcessTypeId(), 'Invoice/BusinessProcess/TypeID');
+
+            foreach ($invoice->getReferencedDocuments() as $reference) {
+                $referenceNode = $node->add('ReferencedDocument');
+                $this->addRequiredStringNode($referenceNode, 'ID', $reference->getId(), 'Invoice/ReferencedDocument/ID');
+                $this->addDateNode($referenceNode, 'IssueDate', $reference->getIssueDate());
+            }
 
             $seller = $node->add('Seller');
             $this->addRequiredSchemeValueNode(
                 $seller,
                 'CompanyId',
                 $invoice->getSellerId(),
-                $invoice->getSellerSchemeId(),
+                $invoice->getSellerSchemeId()?->value,
                 'Invoice/Seller/CompanyId'
             );
             if ($invoice->getSellerVatId() !== null && $invoice->getSellerVatId() !== '') {
@@ -297,7 +352,7 @@ class Flux10Writer extends AbstractMultiWriter
             if ($hasBuyer) {
                 $buyer = $node->add('Buyer');
                 if ($invoice->getBuyerId() !== null && $invoice->getBuyerId() !== '') {
-                    $this->addSchemeValueNode($buyer, 'CompanyId', $invoice->getBuyerId(), $invoice->getBuyerSchemeId(), 'Invoice/Buyer/CompanyId');
+                    $this->addSchemeValueNode($buyer, 'CompanyId', $invoice->getBuyerId(), $invoice->getBuyerSchemeId()?->value, 'Invoice/Buyer/CompanyId');
                 }
                 if ($invoice->getBuyerVatId() !== null && $invoice->getBuyerVatId() !== '') {
                     $buyer->add('TaxRegistrationId', $invoice->getBuyerVatId(), ['qualifyingId' => 'VAT']);
@@ -305,6 +360,33 @@ class Flux10Writer extends AbstractMultiWriter
                 if ($invoice->getBuyerCountry() !== null && $invoice->getBuyerCountry() !== '') {
                     $buyer->add('PostalAddress')->add('CountryId', $invoice->getBuyerCountry());
                 }
+            }
+
+            if ($invoice->getSellerTaxRepresentativeVatId() !== null && $invoice->getSellerTaxRepresentativeVatId() !== '') {
+                $this->addRequiredSchemeValueNode(
+                    $node->add('SellerTaxRepresentative'),
+                    'TaxRegistrationId',
+                    $invoice->getSellerTaxRepresentativeVatId(),
+                    $invoice->getSellerTaxRepresentativeSchemeId(),
+                    'Invoice/SellerTaxRepresentative/TaxRegistrationId'
+                );
+            }
+
+            foreach ($invoice->getDeliveries() as $delivery) {
+                $deliveryNode = $node->add('Delivery');
+                $this->addDateNode($deliveryNode, 'Date', $delivery->getDate());
+                $this->addLocation($deliveryNode, $delivery->getLocation(), false);
+            }
+
+            $this->addPeriod($node, 'InvoicePeriod', $invoice->getInvoicePeriod());
+
+            foreach ($invoice->getAllowancesCharges() as $allowanceCharge) {
+                $allowanceNode = $node->add('AllowanceCharge', null, [
+                    'ChargeIndicator' => $allowanceCharge->isCharge() ? 'true' : 'false',
+                ]);
+                $this->addAmountNode($allowanceNode, 'Amount', $allowanceCharge->getAmount());
+                $this->addStringNode($allowanceNode, 'TaxCategoryCode', $allowanceCharge->getTaxCategoryCode()?->value);
+                $this->addAmountNode($allowanceNode, 'TaxPercent', $allowanceCharge->getTaxPercent());
             }
 
             $monetaryTotal = $node->add('MonetaryTotal');
@@ -332,6 +414,132 @@ class Flux10Writer extends AbstractMultiWriter
             foreach ($breakdown as $item) {
                 $this->addInvoiceTaxSubtotal($node, $this->assertTaxBreakdown($item, 'Invoice'));
             }
+
+            foreach ($invoice->getLines() as $line) {
+                $this->addInvoiceLine($node, $line);
+            }
+        }
+    }
+
+    /**
+     * Serialize an invoice line — TG-24, in the order transaction.xsd declares.
+     */
+    private function addInvoiceLine(UXML $invoiceNode, Flux10Line $line): void
+    {
+        $node = $invoiceNode->add('Line');
+
+        $this->addNotes($node, 'Note', $line->getNotes(), 'Code', 'Comment');
+
+        $quantity = $this->formatAmount($line->getBilledQuantity(), self::QUANTITY_DECIMALS);
+        if ($quantity !== null) {
+            $attributes = [];
+            if ($line->getUnitCode() !== null && $line->getUnitCode() !== '') {
+                $attributes['UnitCode'] = $line->getUnitCode();
+            }
+            $node->add('BilledQuantity', $quantity, $attributes);
+        }
+
+        $reference = $line->getReferencedDocument();
+        if ($reference !== null) {
+            $referenceNode = $node->add('ReferencedDocument');
+            $this->addStringNode($referenceNode, 'ID', $reference->getId());
+            $this->addDateNode($referenceNode, 'IssueDate', $reference->getIssueDate());
+        }
+
+        $delivery = $line->getDelivery();
+        if ($delivery !== null) {
+            $deliveryNode = $node->add('Delivery');
+            $this->addStringNode($deliveryNode, 'Name', $delivery->getName());
+            $this->addLocation($deliveryNode, $delivery->getLocation(), true);
+        }
+
+        $this->addPeriod($node, 'InvoicePeriod', $line->getInvoicePeriod());
+
+        foreach ($line->getAllowancesCharges() as $allowanceCharge) {
+            $allowanceNode = $node->add('AllowanceCharge', null, [
+                'ChargeIndicator' => $allowanceCharge->isCharge() ? 'true' : 'false',
+            ]);
+            $this->addRequiredAmountNode($allowanceNode, 'Amount', $allowanceCharge->getAmount(), 'Invoice/Line/AllowanceCharge/Amount');
+        }
+
+        $price = $line->getPrice();
+        if ($price !== null && !$price->isEmpty()) {
+            $priceNode = $node->add('Price');
+            $this->addAmountNode($priceNode, 'PriceAmount', $price->getPriceAmount(), self::PRICE_DECIMALS);
+            $this->addAmountNode($priceNode, 'AllowanceChargeAmount', $price->getAllowanceChargeAmount(), self::PRICE_DECIMALS);
+            $this->addAmountNode($priceNode, 'AllowanceChargeBaseAmount', $price->getAllowanceChargeBaseAmount(), self::PRICE_DECIMALS);
+        }
+
+        if ($line->getProductName() !== null && $line->getProductName() !== '') {
+            $node->add('Product')->add('Name', $line->getProductName());
+        }
+    }
+
+    /**
+     * Serialize notes, whose two children are named differently on the invoice (Subject,
+     * Content) and on a line (Code, Comment).
+     *
+     * @param Flux10Note[] $notes
+     */
+    private function addNotes(UXML $parent, string $element, array $notes, string $subjectName, string $contentName): void
+    {
+        foreach ($notes as $note) {
+            $noteNode = $parent->add($element);
+            $this->addStringNode($noteNode, $subjectName, $note->getSubject());
+            $this->addStringNode($noteNode, $contentName, $note->getContent());
+        }
+    }
+
+    /**
+     * Serialize a delivery address — TG-19 on the invoice, TG-42 on a line.
+     *
+     * The line variant drops the second and third address lines and makes the country
+     * mandatory (TT-307).
+     */
+    private function addLocation(UXML $parent, ?Flux10Location $location, bool $onLine): void
+    {
+        if ($location === null || $location->isEmpty()) {
+            return;
+        }
+
+        $node = $parent->add('Location');
+        $this->addStringNode($node, 'LineOne', $location->getLineOne());
+        if (!$onLine) {
+            $this->addStringNode($node, 'LineTwo', $location->getLineTwo());
+            $this->addStringNode($node, 'LineThree', $location->getLineThree());
+        }
+        $this->addStringNode($node, 'CityName', $location->getCityName());
+        $this->addStringNode($node, 'PostalZone', $location->getPostalZone());
+        $this->addStringNode($node, 'CountrySubentity', $location->getCountrySubentity());
+
+        if ($onLine) {
+            $this->addRequiredStringNode($node, 'CountryId', $location->getCountryId(), 'Invoice/Line/Delivery/Location/CountryId');
+        } else {
+            $this->addStringNode($node, 'CountryId', $location->getCountryId());
+        }
+    }
+
+    /**
+     * Serialize a start/end date pair — TG-18 on the invoice, TG-25 on a line.
+     */
+    private function addPeriod(UXML $parent, string $element, ?Flux10Period $period): void
+    {
+        if ($period === null) {
+            return;
+        }
+
+        $start = $this->formatDate($period->getStartDate());
+        $end = $this->formatDate($period->getEndDate());
+        if ($start === null && $end === null) {
+            return;
+        }
+
+        $node = $parent->add($element);
+        if ($start !== null) {
+            $node->add('StartDate', $start);
+        }
+        if ($end !== null) {
+            $node->add('EndDate', $end);
         }
     }
 
@@ -370,7 +578,7 @@ class Flux10Writer extends AbstractMultiWriter
                 $subTotalNode = $paymentNode->add('SubTotals');
                 $this->addRequiredAmountNode($subTotalNode, 'TaxPercent', $subTotal->getRate(), 'PaymentsReport/Invoice/Payment/SubTotals/TaxPercent');
                 $this->addStringNode($subTotalNode, 'CurrencyCode', $payment->getCurrencyCode());
-                $this->addRequiredAmountNode($subTotalNode, 'Amount', $subTotal->getAmount(), 'PaymentsReport/Invoice/Payment/SubTotals/Amount');
+                $this->addRequiredAmountNode($subTotalNode, 'Amount', $subTotal->getAmount(), 'PaymentsReport/Invoice/Payment/SubTotals/Amount', self::PRICE_DECIMALS);
             }
         }
     }
@@ -391,7 +599,7 @@ class Flux10Writer extends AbstractMultiWriter
             $this->addRequiredDateNode($node, 'Date', $transaction->getDate(), 'Transactions/Date');
             $this->addRequiredStringNode($node, 'TransactionsCurrency', $transaction->getCurrencyCode(), 'Transactions/TransactionsCurrency');
             $this->addStringNode($node, 'TaxDueDateTypeCode', $transaction->getTaxDueDateTypeCode());
-            $this->addRequiredStringNode($node, 'CategoryCode', $transaction->getCategoryCode(), 'Transactions/CategoryCode');
+            $this->addRequiredStringNode($node, 'CategoryCode', $transaction->getCategoryCode()?->value, 'Transactions/CategoryCode');
             $this->addRequiredAmountNode($node, 'TaxExclusiveAmount', $transaction->getTaxExclusiveAmount(), 'Transactions/TaxExclusiveAmount');
 
             $node->add('TaxTotal', $this->resolveVatAmountInEuros(
@@ -445,7 +653,7 @@ class Flux10Writer extends AbstractMultiWriter
                 $subTotalNode = $paymentNode->add('SubTotals');
                 $this->addRequiredAmountNode($subTotalNode, 'TaxPercent', $amountByRate->getRate(), 'PaymentsReport/Transactions/Payment/SubTotals/TaxPercent');
                 $this->addStringNode($subTotalNode, 'CurrencyCode', $payment->getCurrencyCode());
-                $this->addRequiredAmountNode($subTotalNode, 'Amount', $amountByRate->getAmount(), 'PaymentsReport/Transactions/Payment/SubTotals/Amount');
+                $this->addRequiredAmountNode($subTotalNode, 'Amount', $amountByRate->getAmount(), 'PaymentsReport/Transactions/Payment/SubTotals/Amount', self::PRICE_DECIMALS);
             }
         }
     }
@@ -457,7 +665,10 @@ class Flux10Writer extends AbstractMultiWriter
         $this->addRequiredAmountNode($node, 'TaxAmount', $item->getTaxAmount(), 'Invoice/TaxSubTotal/TaxAmount');
 
         $taxCategory = $node->add('TaxCategory');
+        $this->addStringNode($taxCategory, 'Code', $item->getCategoryCode()?->value);
         $this->addRequiredAmountNode($taxCategory, 'Percent', $item->getRate(), 'Invoice/TaxSubTotal/TaxCategory/Percent');
+        $this->addStringNode($taxCategory, 'TaxExemptionReason', $item->getExemptionReason());
+        $this->addStringNode($taxCategory, 'TaxExemptionReasonCode', $item->getExemptionReasonCode());
     }
 
     private function addTransactionTaxSubtotal(UXML $transactionsNode, Flux10TaxBreakdown $item): void
@@ -471,7 +682,6 @@ class Flux10Writer extends AbstractMultiWriter
     private function buildReportFromInvoices(array $invoices): Flux10Report
     {
         $report = new Flux10Report();
-        $report->setTransmissionType(self::DEFAULT_TRANSMISSION_TYPE);
         $report->setSender($this->sender);
 
         $issueDateBounds = $this->findIssueDateBounds($invoices);
@@ -485,7 +695,9 @@ class Flux10Writer extends AbstractMultiWriter
             $report->setIssuer($this->buildFlux10Issuer($issuer['party'], $issuer['roleCode']));
         }
 
-        if ($issueDateBounds['start'] !== null && $issueDateBounds['end'] !== null) {
+        if ($this->period !== null) {
+            $report->setPeriod($this->period);
+        } elseif ($issueDateBounds['start'] !== null && $issueDateBounds['end'] !== null) {
             $period = new Flux10Period();
             $period->setStartDate($issueDateBounds['start']);
             $period->setEndDate($issueDateBounds['end']);
@@ -540,14 +752,14 @@ class Flux10Writer extends AbstractMultiWriter
 
     private function buildFlux10Invoice(Invoice $invoice): Flux10Invoice
     {
-        $businessProcess = $invoice->getBusinessProcess();
-        if (!in_array($businessProcess, self::BUSINESS_PROCESS_CODES, true)) {
+        $framework = BusinessProcessCode::tryFrom((string) $invoice->getBusinessProcess());
+        if ($framework === null) {
             throw new ValidationException(sprintf(
                 'Invoice "%s" carries "%s" as business process; Flux 10 expects an invoicing framework code (%s). ' .
                 'Presets set their own specification URN here, so it must be overridden with setBusinessProcess().',
                 $invoice->getNumber() ?? '',
-                $businessProcess ?? '',
-                implode(', ', self::BUSINESS_PROCESS_CODES)
+                $invoice->getBusinessProcess() ?? '',
+                implode(', ', array_column(BusinessProcessCode::cases(), 'value'))
             ), 'G1.02');
         }
 
@@ -557,7 +769,7 @@ class Flux10Writer extends AbstractMultiWriter
         $fluxInvoice->setTypeCode((string) $invoice->getType());
         $fluxInvoice->setCurrencyCode($invoice->getCurrency());
         $fluxInvoice->setDueDate($invoice->getDueDate());
-        $fluxInvoice->setBusinessProcessId($businessProcess);
+        $fluxInvoice->setBusinessProcessId($framework);
         $fluxInvoice->setBusinessProcessTypeId(self::EREPORTING_PROFILE);
 
         $seller = $invoice->getSeller();
@@ -569,12 +781,29 @@ class Flux10Writer extends AbstractMultiWriter
         $sellerIdentifier = $this->getPartyIdentifier($seller);
         $buyerIdentifier = $this->getPartyIdentifier($buyer);
         $fluxInvoice->setSellerId($sellerIdentifier?->getValue() ?? ($seller?->getVatNumber()));
-        $fluxInvoice->setSellerSchemeId($sellerIdentifier?->getScheme());
+        $fluxInvoice->setSellerSchemeId($this->resolveIcdScheme($sellerIdentifier, $this->getPartyCountry($seller)));
         $fluxInvoice->setSellerVatId($seller?->getVatNumber());
 
         $fluxInvoice->setBuyerId($buyerIdentifier?->getValue() ?? ($buyer?->getVatNumber()));
-        $fluxInvoice->setBuyerSchemeId($buyerIdentifier?->getScheme());
+        $fluxInvoice->setBuyerSchemeId($this->resolveIcdScheme($buyerIdentifier, $this->getPartyCountry($buyer)));
         $fluxInvoice->setBuyerVatId($buyer?->getVatNumber());
+
+        foreach ($invoice->getPrecedingInvoiceReferences() as $reference) {
+            $fluxInvoice->addReferencedDocument(
+                new Flux10ReferencedDocument($reference->getValue(), $reference->getIssueDate())
+            );
+        }
+
+        foreach ($invoice->getDocumentNotes() as $note) {
+            $fluxInvoice->addNote(new Flux10Note($note->getContent(), $note->getSubjectCode()));
+        }
+
+        $this->addDerivedInvoicePeriod($fluxInvoice, $invoice);
+        $this->addDerivedDelivery($fluxInvoice, $invoice);
+
+        foreach ($invoice->getLines() as $line) {
+            $fluxInvoice->addLine($this->buildFlux10Line($line));
+        }
 
         $totals = $invoice->getTotals();
         $fluxInvoice->setTaxExclusiveAmount($totals->taxExclusiveAmount);
@@ -590,12 +819,93 @@ class Flux10Writer extends AbstractMultiWriter
         return $fluxInvoice;
     }
 
+    /**
+     * Carry the invoicing period over — TG-18.
+     */
+    private function addDerivedInvoicePeriod(Flux10Invoice $fluxInvoice, Invoice $invoice): void
+    {
+        $start = $invoice->getPeriodStartDate();
+        $end = $invoice->getPeriodEndDate();
+        if ($start === null && $end === null) {
+            return;
+        }
+
+        $fluxInvoice->setInvoicePeriod(
+            (new Flux10Period())->setStartDate($start)->setEndDate($end)
+        );
+    }
+
+    /**
+     * Carry the delivery date and address over — TG-17.
+     */
+    private function addDerivedDelivery(Flux10Invoice $fluxInvoice, Invoice $invoice): void
+    {
+        $delivery = $invoice->getDelivery();
+        if ($delivery === null) {
+            return;
+        }
+
+        $address = $delivery->getAddress();
+        $location = (new Flux10Location())
+            ->setLineOne($address[0] ?? null)
+            ->setLineTwo($address[1] ?? null)
+            ->setLineThree($address[2] ?? null)
+            ->setCityName($delivery->getCity())
+            ->setPostalZone($delivery->getPostalCode())
+            ->setCountrySubentity($delivery->getSubdivision())
+            ->setCountryId($delivery->getCountry());
+
+        $fluxDelivery = (new Flux10Delivery())->setDate($delivery->getDate());
+        if (!$location->isEmpty()) {
+            $fluxDelivery->setLocation($location);
+        }
+
+        $fluxInvoice->addDelivery($fluxDelivery);
+    }
+
+    /**
+     * Build a Flux 10 line from an EN 16931 one — TG-24.
+     */
+    private function buildFlux10Line(InvoiceLine $line): Flux10Line
+    {
+        $fluxLine = (new Flux10Line())
+            ->setBilledQuantity($line->getQuantity())
+            ->setUnitCode($line->getUnit())
+            ->setProductName($line->getName());
+
+        if ($line->getNote() !== null) {
+            $fluxLine->addNote(new Flux10Note($line->getNote()));
+        }
+
+        // Only the net price has an EN 16931 counterpart; the gross price and its
+        // discount (TT-70/TT-71) are set by the caller when known.
+        $price = (new Flux10Price())->setPriceAmount($line->getPrice());
+        if (!$price->isEmpty()) {
+            $fluxLine->setPrice($price);
+        }
+
+        // TT-67/TT-68 expect a monetary amount; an EN 16931 allowance may be a
+        // percentage, which only resolves against the line base.
+        $base = $line->getNetAmountBeforeAllowancesCharges() ?? 0.0;
+        foreach ($line->getAllowances() as $allowance) {
+            $fluxLine->addAllowanceCharge(new Flux10AllowanceCharge($allowance->getEffectiveAmount($base), false));
+        }
+        foreach ($line->getCharges() as $charge) {
+            $fluxLine->addAllowanceCharge(new Flux10AllowanceCharge($charge->getEffectiveAmount($base), true));
+        }
+
+        return $fluxLine;
+    }
+
     private function buildFlux10TaxBreakdown(InvoiceVatBreakdown $item): Flux10TaxBreakdown
     {
         $fluxItem = new Flux10TaxBreakdown();
         $fluxItem->setRate($item->rate);
         $fluxItem->setTaxableAmount($item->taxableAmount);
         $fluxItem->setTaxAmount($item->taxAmount);
+        $fluxItem->setCategoryCode(VatCategoryCode::tryFrom((string) $item->category));
+        $fluxItem->setExemptionReason($item->exemptionReason);
+        $fluxItem->setExemptionReasonCode($item->exemptionReasonCode);
 
         return $fluxItem;
     }
@@ -819,9 +1129,9 @@ class Flux10Writer extends AbstractMultiWriter
         $node->add($name, $formatted);
     }
 
-    private function addRequiredAmountNode(UXML $node, string $name, $amount, string $context): void
+    private function addRequiredAmountNode(UXML $node, string $name, $amount, string $context, int $decimals = self::AMOUNT_DECIMALS): void
     {
-        $formatted = $this->formatAmount($amount);
+        $formatted = $this->formatAmount($amount, $decimals);
         if ($formatted === null) {
             throw new InvalidArgumentException("Missing required amount for {$context}");
         }
@@ -856,9 +1166,9 @@ class Flux10Writer extends AbstractMultiWriter
         $node->add($name, $formatted);
     }
 
-    private function addAmountNode(UXML $node, string $name, $amount): void
+    private function addAmountNode(UXML $node, string $name, $amount, int $decimals = self::AMOUNT_DECIMALS): void
     {
-        $formatted = $this->formatAmount($amount);
+        $formatted = $this->formatAmount($amount, $decimals);
         if ($formatted === null) {
             return;
         }
@@ -920,26 +1230,62 @@ class Flux10Writer extends AbstractMultiWriter
         return (new DateTime('now', new DateTimeZone(self::TIMEZONE)))->format(self::DATE_TIME_FORMAT);
     }
 
-    private function formatAmount($amount): ?string
+    /**
+     * Format an amount with the precision the annexe defines for that field.
+     *
+     * Amounts carry 2 decimals (G1.14), collected amounts and unit prices up to 6
+     * (G7.07, G1.16), quantities 4 (G1.15).
+     */
+    private function formatAmount($amount, int $decimals = self::AMOUNT_DECIMALS): ?string
     {
-        if ($amount === null) {
+        if ($amount === null || $amount === '') {
             return null;
         }
 
-        if (is_string($amount)) {
-            if ($amount === '') {
-                return null;
-            }
-            if (is_numeric($amount)) {
-                return number_format(round((float) $amount, 2, PHP_ROUND_HALF_UP), 2, '.', '');
-            }
-            return $amount;
+        if (!is_numeric($amount)) {
+            return is_string($amount) ? $amount : null;
         }
 
-        if (is_int($amount) || is_float($amount)) {
-            return number_format(round((float) $amount, 2, PHP_ROUND_HALF_UP), 2, '.', '');
+        $formatted = number_format(round((float) $amount, $decimals, PHP_ROUND_HALF_UP), $decimals, '.', '');
+
+        // Trailing zeros are not significant and would eat into the 19-digit budget
+        if ($decimals > self::AMOUNT_DECIMALS) {
+            $formatted = rtrim(rtrim($formatted, '0'), '.');
+            if (!str_contains($formatted, '.')) {
+                $formatted = number_format((float) $formatted, self::AMOUNT_DECIMALS, '.', '');
+            }
         }
 
-        return null;
+        $digits = strlen(str_replace(['.', '-'], '', $formatted));
+        if ($digits > self::MAX_AMOUNT_DIGITS) {
+            throw new ValidationException(sprintf(
+                'The amount %s exceeds %d digits',
+                $formatted,
+                self::MAX_AMOUNT_DIGITS
+            ), 'G1.14');
+        }
+
+        return $formatted;
+    }
+
+    /**
+     * Resolve the ISO 6523 scheme of a party identifier — G2.19.
+     *
+     * An EN 16931 party carries whatever scheme its source system used ("VAT", SIRET
+     * "0009", …), most of which are not admissible in Flux 10, so anything outside the
+     * ICD list is re-derived from the country.
+     */
+    private function resolveIcdScheme(?Identifier $identifier, ?string $countryCode): ?IcdSchemeId
+    {
+        $scheme = IcdSchemeId::tryFrom((string) $identifier?->getScheme());
+        if ($scheme !== null) {
+            return $scheme;
+        }
+
+        if ($countryCode === null || $countryCode === '') {
+            return null;
+        }
+
+        return IcdSchemeId::fromCountry($countryCode);
     }
 }

@@ -8,7 +8,7 @@ use Einvoicing\Flux10\AmountByRate;
 use Einvoicing\Flux10\Invoice as Flux10Invoice;
 use Einvoicing\Flux10\InvoicePayment;
 use Einvoicing\Flux10\Issuer;
-use Einvoicing\Flux10\IssuerRoleCode;
+use Einvoicing\Flux10\Enums\IssuerRoleCode;
 use Einvoicing\Flux10\Period;
 use Einvoicing\Flux10\Report;
 use Einvoicing\Flux10\Sender;
@@ -117,6 +117,103 @@ final class Flux10WriterGuardsTest extends TestCase
 
         $this->expectException(ValidationException::class);
         $this->expectExceptionMessage('Missing identifier scheme');
+
+        // Validation has nothing to check without a scheme; the writer is what refuses.
+        (new Flux10Writer())->exportReport($report, false);
+    }
+
+    /**
+     * A scheme outside the ISO 6523 list cannot even be held by the model — G2.19.
+     */
+    public function testNonIcdSchemeIsRejectedAtAssignment(): void
+    {
+        $this->expectException(\ValueError::class);
+
+        (new Flux10Invoice())->setSellerSchemeId('0009');
+    }
+
+    /**
+     * An identifier that does not fit its scheme is caught by validation — G2.19.
+     */
+    public function testIdentifierInconsistentWithItsSchemeIsRefused(): void
+    {
+        $report = $this->minimalReport();
+        $report->getInvoices()[0]->setSellerId('12345');
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('does not match scheme 0002');
+
+        (new Flux10Writer())->exportReport($report);
+    }
+
+    /**
+     * Rates outside the accepted list are refused — G1.24.
+     */
+    public function testUnknownVatRateIsRefused(): void
+    {
+        $report = $this->minimalReport();
+        $report->getInvoices()[0]->getTaxBreakdown()[0]->setRate(17.5);
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('not in the accepted list');
+
+        (new Flux10Writer())->exportReport($report);
+    }
+
+    /**
+     * Totals must match their breakdown, within a cent — G1.53.
+     */
+    public function testTotalsInconsistentWithBreakdownAreRefused(): void
+    {
+        $report = $this->minimalReport();
+        $report->getInvoices()[0]->setTaxExclusiveAmount(1500.00);
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('does not match the sum of the taxable bases');
+
+        (new Flux10Writer())->exportReport($report);
+    }
+
+    /**
+     * An exempt breakdown carries both its reason and its code — G1.40.
+     */
+    public function testExemptBreakdownWithoutReasonIsRefused(): void
+    {
+        $report = $this->minimalReport();
+        $report->getInvoices()[0]->getTaxBreakdown()[0]->setRate(0)->setCategoryCode('E');
+        $report->getInvoices()[0]->setTaxAmount(0)->setTaxExclusiveAmount(1000.00);
+        $report->getInvoices()[0]->getTaxBreakdown()[0]->setTaxAmount(0);
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('requires both an exemption reason');
+
+        (new Flux10Writer())->exportReport($report);
+    }
+
+    /**
+     * B2C invoice reporting is not allowed, so the buyer must be identified — G6.28.
+     */
+    public function testInvoiceWithoutBuyerIdentifierIsRefused(): void
+    {
+        $report = $this->minimalReport();
+        $report->getInvoices()[0]->setBuyerId(null);
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('B2C invoice reporting is not allowed');
+
+        (new Flux10Writer())->exportReport($report);
+    }
+
+    /**
+     * Only the UNTDID 1001 subset is usable in Flux 10 — G1.01.
+     */
+    public function testInvoiceTypeOutsideTheSubsetIsRefused(): void
+    {
+        $report = $this->minimalReport();
+        $report->getInvoices()[0]->setTypeCode('325');
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('is not allowed in Flux 10');
 
         (new Flux10Writer())->exportReport($report);
     }
@@ -235,9 +332,11 @@ final class Flux10WriterGuardsTest extends TestCase
             ->setBusinessProcessTypeId(Flux10Writer::EREPORTING_PROFILE)
             ->setSellerId('123456789')
             ->setSellerSchemeId('0002')
+            ->setSellerVatId('FR12345678901')
             ->setSellerCountry('FR')
             ->setBuyerId('DE123456789012')
             ->setBuyerSchemeId('0223')
+            ->setBuyerVatId('DE123456789')
             ->setBuyerCountry('DE')
             ->setTaxExclusiveAmount(1000.00)
             ->setTaxAmount(200.00)

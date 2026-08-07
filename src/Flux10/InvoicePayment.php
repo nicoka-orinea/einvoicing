@@ -122,7 +122,8 @@ class InvoicePayment
     /**
      * Get payment amount.
      *
-     * @deprecated Use {@see getAmountsByRate()} instead.
+     * @deprecated 0.3.0
+     * @see InvoicePayment::getAmountsByRate()
      */
     public function getAmount(): float|string|null
     {
@@ -132,9 +133,11 @@ class InvoicePayment
     /**
      * Set payment amount.
      *
-     * @deprecated Use {@see addAmountByRate()} instead: the PPF expects the amount split
-     *             by VAT rate (TG-36).
+     * The PPF expects the amount split by VAT rate (TG-36).
+     *
      * @param float|string|null $amount
+     * @deprecated 0.3.0
+     * @see InvoicePayment::addAmountByRate()
      */
     public function setAmount(float|string|null $amount): self
     {
