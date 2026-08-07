@@ -48,6 +48,7 @@ nav:
     - CDAR status mapping: getting-started/cdar-status-mapping.md
     - Importing CDAR XML: getting-started/importing-cdar.md
     - Exporting CDAR XML: getting-started/exporting-cdar.md
+    - Exporting Flux 10 e-reporting XML: getting-started/exporting-flux10.md
     - Creating custom presets: getting-started/creating-custom-presets.md
   - Reference:
     - CDAR overview: reference/cdar-overview.md

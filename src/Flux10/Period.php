@@ -2,26 +2,26 @@
 
 namespace Einvoicing\Flux10;
 
-use DateTime;
+use DateTimeInterface;
 
 class Period
 {
     /**
      * Period start date.
-     * @var DateTime|string|null
+     * @var DateTimeInterface|string|null
      */
-    protected DateTime|string|null $startDate = null;
+    protected DateTimeInterface|string|null $startDate = null;
 
     /**
      * Period end date.
-     * @var DateTime|string|null
+     * @var DateTimeInterface|string|null
      */
-    protected DateTime|string|null $endDate = null;
+    protected DateTimeInterface|string|null $endDate = null;
 
     /**
      * Get start date.
      */
-    public function getStartDate(): DateTime|string|null
+    public function getStartDate(): DateTimeInterface|string|null
     {
         return $this->startDate;
     }
@@ -29,9 +29,9 @@ class Period
     /**
      * Set start date.
      *
-     * @param DateTime|string|null $startDate
+     * @param DateTimeInterface|string|null $startDate
      */
-    public function setStartDate(DateTime|string|null $startDate): self
+    public function setStartDate(DateTimeInterface|string|null $startDate): self
     {
         $this->startDate = $startDate;
         return $this;
@@ -40,7 +40,7 @@ class Period
     /**
      * Get end date.
      */
-    public function getEndDate(): DateTime|string|null
+    public function getEndDate(): DateTimeInterface|string|null
     {
         return $this->endDate;
     }
@@ -48,9 +48,9 @@ class Period
     /**
      * Set end date.
      *
-     * @param DateTime|string|null $endDate
+     * @param DateTimeInterface|string|null $endDate
      */
-    public function setEndDate(DateTime|string|null $endDate): self
+    public function setEndDate(DateTimeInterface|string|null $endDate): self
     {
         $this->endDate = $endDate;
         return $this;

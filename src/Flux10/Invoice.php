@@ -3,6 +3,8 @@
 namespace Einvoicing\Flux10;
 
 use DateTime;
+use Einvoicing\Flux10\Enums\BusinessProcessCode;
+use Einvoicing\Flux10\Enums\IcdSchemeId;
 use OutOfBoundsException;
 use function array_splice;
 use function count;
@@ -40,10 +42,10 @@ class Invoice
     protected $taxDueDateTypeCode = null;
 
     /**
-     * Business process ID (XSD Invoice/BusinessProcess/ID).
-     * @var string|null
+     * Invoicing framework (TT-28, G1.02).
+     * @var BusinessProcessCode|null
      */
-    protected $businessProcessId = null;
+    protected ?BusinessProcessCode $businessProcessId = null;
 
     /**
      * Business process type ID (XSD Invoice/BusinessProcess/TypeID).
@@ -64,10 +66,10 @@ class Invoice
     protected $sellerId = null;
 
     /**
-     * Seller identifier scheme (XSD attribute `schemeId`).
-     * @var string|null
+     * Seller identifier scheme (TT-33-1/TT-37, G2.19).
+     * @var IcdSchemeId|null
      */
-    protected $sellerSchemeId = null;
+    protected ?IcdSchemeId $sellerSchemeId = null;
 
     /**
      * Seller country code.
@@ -88,10 +90,10 @@ class Invoice
     protected $buyerId = null;
 
     /**
-     * Buyer identifier scheme (XSD attribute `schemeId`).
-     * @var string|null
+     * Buyer identifier scheme (TT-33-1/TT-37, G2.19).
+     * @var IcdSchemeId|null
      */
-    protected $buyerSchemeId = null;
+    protected ?IcdSchemeId $buyerSchemeId = null;
 
     /**
      * Buyer country code.
@@ -112,16 +114,78 @@ class Invoice
     protected float|string|null $taxExclusiveAmount = null;
 
     /**
-     * VAT amount.
+     * VAT amount, in the invoice currency.
      * @var float|string|null
      */
     protected float|string|null $taxAmount = null;
+
+    /**
+     * Total VAT amount converted to euros (TT-52).
+     *
+     * The PPF requires this total in euros whatever the invoice currency (G6.23), so a
+     * non-EUR invoice must carry the converted value here. Conversion is a business
+     * decision and is never performed by the library.
+     *
+     * @var float|string|null
+     */
+    protected float|string|null $vatAmountEur = null;
 
     /**
      * VAT breakdown lines.
      * @var TaxBreakdown[]
      */
     protected $taxBreakdown = [];
+
+    /**
+     * Invoice notes (TG-9).
+     * @var Note[]
+     */
+    protected array $notes = [];
+
+    /**
+     * References to earlier invoices (TG-11).
+     *
+     * Mandatory for a corrective invoice or a credit note (G1.32).
+     *
+     * @var ReferencedDocument[]
+     */
+    protected array $referencedDocuments = [];
+
+    /**
+     * VAT identifier of the seller's tax representative (TT-122).
+     * @var string|null
+     */
+    protected ?string $sellerTaxRepresentativeVatId = null;
+
+    /**
+     * Identifier scheme of the tax representative VAT identifier (TT-40).
+     * @var string|null
+     */
+    protected ?string $sellerTaxRepresentativeSchemeId = null;
+
+    /**
+     * Delivery information (TG-17).
+     * @var Delivery[]
+     */
+    protected array $deliveries = [];
+
+    /**
+     * Invoicing period (TG-18).
+     * @var Period|null
+     */
+    protected ?Period $invoicePeriod = null;
+
+    /**
+     * Document-level allowances and charges (TG-20, TG-21).
+     * @var AllowanceCharge[]
+     */
+    protected array $allowancesCharges = [];
+
+    /**
+     * Invoice lines (TG-24).
+     * @var Line[]
+     */
+    protected array $lines = [];
 
     /**
      * Get invoice identifier.
@@ -209,19 +273,23 @@ class Invoice
     }
 
     /**
-     * Get business process ID.
+     * Get invoicing framework (TT-28).
      */
-    public function getBusinessProcessId(): ?string
+    public function getBusinessProcessId(): ?BusinessProcessCode
     {
         return $this->businessProcessId;
     }
 
     /**
-     * Set business process ID.
+     * Set invoicing framework (TT-28, G1.02).
+     *
+     * @param BusinessProcessCode|string|null $businessProcessId `B1`, `S1`, `M1`, … when a string
      */
-    public function setBusinessProcessId(?string $businessProcessId): self
+    public function setBusinessProcessId(BusinessProcessCode|string|null $businessProcessId): self
     {
-        $this->businessProcessId = $businessProcessId;
+        $this->businessProcessId = is_string($businessProcessId)
+            ? BusinessProcessCode::from($businessProcessId)
+            : $businessProcessId;
         return $this;
     }
 
@@ -277,19 +345,23 @@ class Invoice
     }
 
     /**
-     * Get seller identifier scheme.
+     * Get seller identifier scheme (G2.19).
      */
-    public function getSellerSchemeId(): ?string
+    public function getSellerSchemeId(): ?IcdSchemeId
     {
         return $this->sellerSchemeId;
     }
 
     /**
-     * Set seller identifier scheme.
+     * Set seller identifier scheme (G2.19).
+     *
+     * @param IcdSchemeId|string|null $sellerSchemeId An ISO 6523 code when a string
      */
-    public function setSellerSchemeId(?string $sellerSchemeId): self
+    public function setSellerSchemeId(IcdSchemeId|string|null $sellerSchemeId): self
     {
-        $this->sellerSchemeId = $sellerSchemeId;
+        $this->sellerSchemeId = is_string($sellerSchemeId)
+            ? IcdSchemeId::from($sellerSchemeId)
+            : $sellerSchemeId;
         return $this;
     }
 
@@ -345,19 +417,23 @@ class Invoice
     }
 
     /**
-     * Get buyer identifier scheme.
+     * Get buyer identifier scheme (G2.19).
      */
-    public function getBuyerSchemeId(): ?string
+    public function getBuyerSchemeId(): ?IcdSchemeId
     {
         return $this->buyerSchemeId;
     }
 
     /**
-     * Set buyer identifier scheme.
+     * Set buyer identifier scheme (G2.19).
+     *
+     * @param IcdSchemeId|string|null $buyerSchemeId An ISO 6523 code when a string
      */
-    public function setBuyerSchemeId(?string $buyerSchemeId): self
+    public function setBuyerSchemeId(IcdSchemeId|string|null $buyerSchemeId): self
     {
-        $this->buyerSchemeId = $buyerSchemeId;
+        $this->buyerSchemeId = is_string($buyerSchemeId)
+            ? IcdSchemeId::from($buyerSchemeId)
+            : $buyerSchemeId;
         return $this;
     }
 
@@ -430,6 +506,27 @@ class Invoice
     }
 
     /**
+     * Get total VAT amount in euros (TT-52).
+     */
+    public function getVatAmountEur(): float|string|null
+    {
+        return $this->vatAmountEur;
+    }
+
+    /**
+     * Set total VAT amount in euros (TT-52, G6.23).
+     *
+     * Required when the invoice currency is not EUR.
+     *
+     * @param float|string|null $vatAmountEur
+     */
+    public function setVatAmountEur(float|string|null $vatAmountEur): self
+    {
+        $this->vatAmountEur = $vatAmountEur;
+        return $this;
+    }
+
+    /**
      * @return TaxBreakdown[]
      */
     public function getTaxBreakdown(): array
@@ -465,6 +562,249 @@ class Invoice
     public function clearTaxBreakdown(): self
     {
         $this->taxBreakdown = [];
+        return $this;
+    }
+
+    /**
+     * @return Note[]
+     */
+    public function getNotes(): array
+    {
+        return $this->notes;
+    }
+
+    /**
+     * Add an invoice note (TG-9).
+     */
+    public function addNote(Note $note): self
+    {
+        $this->notes[] = $note;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeNote(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->notes)) {
+            throw new OutOfBoundsException('Could not find note by index');
+        }
+        array_splice($this->notes, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all invoice notes.
+     */
+    public function clearNotes(): self
+    {
+        $this->notes = [];
+        return $this;
+    }
+
+    /**
+     * @return ReferencedDocument[]
+     */
+    public function getReferencedDocuments(): array
+    {
+        return $this->referencedDocuments;
+    }
+
+    /**
+     * Add a reference to an earlier invoice (TG-11, G1.32).
+     */
+    public function addReferencedDocument(ReferencedDocument $referencedDocument): self
+    {
+        $this->referencedDocuments[] = $referencedDocument;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeReferencedDocument(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->referencedDocuments)) {
+            throw new OutOfBoundsException('Could not find referenced document by index');
+        }
+        array_splice($this->referencedDocuments, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all references to earlier invoices.
+     */
+    public function clearReferencedDocuments(): self
+    {
+        $this->referencedDocuments = [];
+        return $this;
+    }
+
+    /**
+     * Get the VAT identifier of the seller's tax representative (TT-122).
+     */
+    public function getSellerTaxRepresentativeVatId(): ?string
+    {
+        return $this->sellerTaxRepresentativeVatId;
+    }
+
+    /**
+     * Set the VAT identifier of the seller's tax representative (TT-122).
+     *
+     * Satisfies G1.102 in place of the seller VAT identifier when the breakdown is exempt.
+     */
+    public function setSellerTaxRepresentativeVatId(?string $vatId): self
+    {
+        $this->sellerTaxRepresentativeVatId = $vatId;
+        return $this;
+    }
+
+    /**
+     * Get the scheme of the tax representative VAT identifier (TT-40).
+     */
+    public function getSellerTaxRepresentativeSchemeId(): ?string
+    {
+        return $this->sellerTaxRepresentativeSchemeId;
+    }
+
+    /**
+     * Set the scheme of the tax representative VAT identifier (TT-40).
+     */
+    public function setSellerTaxRepresentativeSchemeId(?string $schemeId): self
+    {
+        $this->sellerTaxRepresentativeSchemeId = $schemeId;
+        return $this;
+    }
+
+    /**
+     * @return Delivery[]
+     */
+    public function getDeliveries(): array
+    {
+        return $this->deliveries;
+    }
+
+    /**
+     * Add delivery information (TG-17).
+     */
+    public function addDelivery(Delivery $delivery): self
+    {
+        $this->deliveries[] = $delivery;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeDelivery(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->deliveries)) {
+            throw new OutOfBoundsException('Could not find delivery by index');
+        }
+        array_splice($this->deliveries, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all delivery blocks.
+     */
+    public function clearDeliveries(): self
+    {
+        $this->deliveries = [];
+        return $this;
+    }
+
+    /**
+     * Get the invoicing period (TG-18).
+     */
+    public function getInvoicePeriod(): ?Period
+    {
+        return $this->invoicePeriod;
+    }
+
+    /**
+     * Set the invoicing period (TG-18, G6.20).
+     */
+    public function setInvoicePeriod(?Period $invoicePeriod): self
+    {
+        $this->invoicePeriod = $invoicePeriod;
+        return $this;
+    }
+
+    /**
+     * @return AllowanceCharge[]
+     */
+    public function getAllowancesCharges(): array
+    {
+        return $this->allowancesCharges;
+    }
+
+    /**
+     * Add a document-level allowance or charge (TG-20, TG-21).
+     */
+    public function addAllowanceCharge(AllowanceCharge $allowanceCharge): self
+    {
+        $this->allowancesCharges[] = $allowanceCharge;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeAllowanceCharge(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->allowancesCharges)) {
+            throw new OutOfBoundsException('Could not find allowance or charge by index');
+        }
+        array_splice($this->allowancesCharges, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all document-level allowances and charges.
+     */
+    public function clearAllowancesCharges(): self
+    {
+        $this->allowancesCharges = [];
+        return $this;
+    }
+
+    /**
+     * @return Line[]
+     */
+    public function getLines(): array
+    {
+        return $this->lines;
+    }
+
+    /**
+     * Add an invoice line (TG-24).
+     */
+    public function addLine(Line $line): self
+    {
+        $this->lines[] = $line;
+        return $this;
+    }
+
+    /**
+     * @throws OutOfBoundsException if index is out of bounds
+     */
+    public function removeLine(int $index): self
+    {
+        if ($index < 0 || $index >= count($this->lines)) {
+            throw new OutOfBoundsException('Could not find line by index');
+        }
+        array_splice($this->lines, $index, 1);
+        return $this;
+    }
+
+    /**
+     * Clear all invoice lines.
+     */
+    public function clearLines(): self
+    {
+        $this->lines = [];
         return $this;
     }
 }
