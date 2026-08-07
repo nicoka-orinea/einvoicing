@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report>
+  <ReportDocument>
+    <Id>REPORT-2026-01</Id>
+    <IssueDateTime>
+      <DateTimeString>@@TIMESTAMP@@</DateTimeString>
+    </IssueDateTime>
+    <TypeCode>IN</TypeCode>
+    <Sender>
+      <Id schemeId="0002">123456789</Id>
+      <Name>Sender SA</Name>
+      <RoleCode>SE</RoleCode>
+    </Sender>
+    <Issuer>
+      <Id schemeId="0002">123456789</Id>
+      <Name>Issuer SA</Name>
+      <RoleCode>SE</RoleCode>
+    </Issuer>
+  </ReportDocument>
+  <PaymentsReport>
+    <ReportPeriod>
+      <StartDate>2026-01-01</StartDate>
+      <EndDate>2026-01-31</EndDate>
+    </ReportPeriod>
+    <Invoice>
+      <InvoiceID>INV-1</InvoiceID>
+      <IssueDate>2026-01-10</IssueDate>
+      <Payment>
+        <Date>2026-01-20</Date>
+        <SubTotals>
+          <TaxPercent>20.00</TaxPercent>
+          <CurrencyCode>EUR</CurrencyCode>
+          <Amount>1200.00</Amount>
+        </SubTotals>
+      </Payment>
+    </Invoice>
+  </PaymentsReport>
+</Report>

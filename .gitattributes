@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# Official DGFiP specification artefacts — keep byte-identical to the published files
+# so they stay comparable with the source distribution.
+specifications-externes-*/** -text
