@@ -21,6 +21,17 @@ enum ProcessConditionCode: int
     case PAID = 212;
     case REJECTED = 213;
 
+    // Statuses of the non-invoice objects, from Annexe 2 "Statuts"
+    case FLUX1_SUBMITTED = 250;
+    case FLUX1_REJECTED = 251;
+    case EREPORTING_SUBMITTED = 300;
+    case EREPORTING_REJECTED = 301;
+    case DIRECTORY_ACCEPTED = 400;
+    case DIRECTORY_REJECTED = 401;
+    case FLOW_ADMISSIBLE = 500;
+    case FLOW_INADMISSIBLE = 501;
+    case ACKNOWLEDGEMENT_REJECTED = 601;
+
     /**
      * Get an English label for UI/logs.
      * Business meaning: lifecycle status label.
@@ -42,6 +53,15 @@ enum ProcessConditionCode: int
             self::PAYMENT_TRANSMITTED => 'Payment transmitted',
             self::PAID => 'Paid',
             self::REJECTED => 'Rejected',
+            self::FLUX1_SUBMITTED => 'Submitted',
+            self::FLUX1_REJECTED => 'Rejected',
+            self::EREPORTING_SUBMITTED => 'Submitted',
+            self::EREPORTING_REJECTED => 'Rejected',
+            self::DIRECTORY_ACCEPTED => 'Accepted',
+            self::DIRECTORY_REJECTED => 'Rejected',
+            self::FLOW_ADMISSIBLE => 'Admissible',
+            self::FLOW_INADMISSIBLE => 'Inadmissible',
+            self::ACKNOWLEDGEMENT_REJECTED => 'Rejected',
         };
     }
 
@@ -66,6 +86,16 @@ enum ProcessConditionCode: int
             self::PAYMENT_TRANSMITTED => 'Paiement_transmis',
             self::PAID => 'Encaissee',
             self::REJECTED => 'Rejetee',
+            // Labels of Annexe 2 "Statuts", transliterated like the ones above
+            self::FLUX1_SUBMITTED => 'Deposee',
+            self::FLUX1_REJECTED => 'Rejetee',
+            self::EREPORTING_SUBMITTED => 'Deposee',
+            self::EREPORTING_REJECTED => 'Rejetee',
+            self::DIRECTORY_ACCEPTED => 'Acceptee',
+            self::DIRECTORY_REJECTED => 'Rejetee',
+            self::FLOW_ADMISSIBLE => 'Recevable',
+            self::FLOW_INADMISSIBLE => 'Irrecevable',
+            self::ACKNOWLEDGEMENT_REJECTED => 'Rejete',
         };
     }
 
@@ -90,6 +120,15 @@ enum ProcessConditionCode: int
             self::PAYMENT_TRANSMITTED => StatusCode::PAYMENT_EVENT,
             self::PAID => StatusCode::PAYMENT_EVENT,
             self::REJECTED => StatusCode::REJECTED,
+            self::FLUX1_SUBMITTED => StatusCode::SUBMITTED,
+            self::FLUX1_REJECTED => StatusCode::REJECTED,
+            self::EREPORTING_SUBMITTED => StatusCode::SUBMITTED,
+            self::EREPORTING_REJECTED => StatusCode::REJECTED,
+            self::DIRECTORY_ACCEPTED => StatusCode::APPROVED,
+            self::DIRECTORY_REJECTED => StatusCode::REJECTED,
+            self::FLOW_ADMISSIBLE => StatusCode::APPROVED,
+            self::FLOW_INADMISSIBLE => StatusCode::REJECTED,
+            self::ACKNOWLEDGEMENT_REJECTED => StatusCode::REJECTED,
         };
     }
 }

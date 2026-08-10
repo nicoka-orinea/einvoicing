@@ -89,6 +89,9 @@
             </cac:TaxCategory>
         </cac:TaxSubtotal>
     </cac:TaxTotal>
+    <cac:PaymentTerms>
+        <ns:Note>Payment within 30 days</ns:Note>
+    </cac:PaymentTerms>
     <cac:LegalMonetaryTotal>
         <ns:LineExtensionAmount currencyID="EUR">1300</ns:LineExtensionAmount>
         <ns:TaxExclusiveAmount currencyID="EUR">1300</ns:TaxExclusiveAmount>

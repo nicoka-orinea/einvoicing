@@ -225,9 +225,16 @@ XML;
         </ram:ApplicableHeaderTradeAgreement>
         <ram:ApplicableHeaderTradeSettlement>
             <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>
-            <ram:TaxApplicableTradeCurrencyExchange>
-                <ram:DateString format="102">20260114</ram:DateString>
-            </ram:TaxApplicableTradeCurrencyExchange>
+            <ram:ApplicableTradeTax>
+                <ram:CalculatedAmount>19.00</ram:CalculatedAmount>
+                <ram:TypeCode>VAT</ram:TypeCode>
+                <ram:BasisAmount>100.00</ram:BasisAmount>
+                <ram:CategoryCode>S</ram:CategoryCode>
+                <ram:TaxPointDate>
+                    <udt:DateString format="102">20260114</udt:DateString>
+                </ram:TaxPointDate>
+                <ram:RateApplicablePercent>19</ram:RateApplicablePercent>
+            </ram:ApplicableTradeTax>
             <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
                 <ram:LineTotalAmount>100.00</ram:LineTotalAmount>
                 <ram:TaxBasisTotalAmount>100.00</ram:TaxBasisTotalAmount>

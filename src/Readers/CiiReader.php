@@ -8,46 +8,50 @@ use Einvoicing\Delivery;
 use Einvoicing\Identifier;
 use Einvoicing\Invoice;
 use Einvoicing\InvoiceLine;
+use Einvoicing\InvoiceReference;
 use Einvoicing\Party;
+use Einvoicing\Payments\Card;
+use Einvoicing\Payments\Mandate;
 use Einvoicing\Payments\Payment;
 use Einvoicing\Payments\Transfer;
-use Einvoicing\Writers\CiiWriter;
 use InvalidArgumentException;
 use UXML\UXML;
-use function floatval;
-use function implode;
 
 class CiiReader extends AbstractReader
 {
     /**
      * @inheritdoc
+     *
+     * The header VAT breakdown has no dedicated receptacle in the model, so its
+     * exemption reason and reason code (BT-120/BT-121) are copied onto every
+     * invoice line whose category and rate match the breakdown and which does
+     * not carry one already.
      * @throws InvalidArgumentException if failed to parse XML
      */
     public function import(string $document): Invoice
     {
-        $invoice = new Invoice();
+        // A DOCTYPE serves no purpose here and is an entity expansion vector
+        if (preg_match('/<!DOCTYPE/i', $document) === 1) {
+            throw new InvalidArgumentException("XML documents with a DOCTYPE declaration are not accepted");
+        }
 
         // Load XML document
         $xml = UXML::fromString($document);
-        $ram = CiiWriter::NS_RAM;
-        $rsm = CiiWriter::NS_INVOICE;
-        $udt = CiiWriter::NS_UDT;
 
-        // BT-24: Specification identifier
-        $businessProcessNode = $xml->get("rsm:ExchangedDocumentContext/ram:BusinessProcessSpecifiedDocumentContextParameter/ram:ID");
-        if ($businessProcessNode !== null) {
-            $invoice->setBusinessProcess($businessProcessNode->asText());
-        }
-        $specificationNode = $xml->get("rsm:ExchangedDocumentContext/ram:GuidelineSpecifiedDocumentContextParameter/ram:ID");
-        if ($specificationNode !== null) {
-            $specification = $specificationNode->asText();
+        // BT-23 and BT-24: business process and specification identifier
+        $businessProcess = $xml->get("rsm:ExchangedDocumentContext/ram:BusinessProcessSpecifiedDocumentContextParameter/ram:ID")?->asText();
+        $specification = $xml->get("rsm:ExchangedDocumentContext/ram:GuidelineSpecifiedDocumentContextParameter/ram:ID")?->asText();
+
+        // Try to create from preset
+        $presetClassname = ($specification !== null) ? $this->getPresetFromSpecification($specification) : null;
+        $invoice = ($presetClassname !== null) ? new Invoice($presetClassname) : new Invoice();
+
+        // Document values win over the preset defaults
+        if ($specification !== null) {
             $invoice->setSpecification($specification);
-
-            // Try to create from preset
-            $presetClassname = $this->getPresetFromSpecification($specification);
-            if ($presetClassname !== null) {
-                $invoice = new Invoice($presetClassname);
-            }
+        }
+        if ($businessProcess !== null) {
+            $invoice->setBusinessProcess($businessProcess);
         }
 
         $exchangedDoc = $xml->get("rsm:ExchangedDocument");
@@ -119,55 +123,91 @@ class CiiReader extends AbstractReader
                 if ($contractNode !== null) {
                     $invoice->setContractReference($contractNode->asText());
                 }
+
+                // BG-11: Seller tax representative
+                $taxRepresentativeNode = $agreement->get("ram:SellerTaxRepresentativeTradeParty");
+                if ($taxRepresentativeNode !== null) {
+                    $invoice->setTaxRepresentative($this->parsePartyNode($taxRepresentativeNode));
+                }
+
+                // BT-18: Invoiced object identifier
+                foreach ($agreement->getAll("ram:AdditionalReferencedDocument") as $referenceNode) {
+                    if ($referenceNode->get("ram:TypeCode")?->asText() !== '130') {
+                        continue;
+                    }
+                    $value = $referenceNode->get("ram:IssuerAssignedID")?->asText();
+                    if ($value === null) {
+                        continue;
+                    }
+                    $invoice->setInvoicedObjectIdentifier(new Identifier(
+                        $value,
+                        $referenceNode->get("ram:ReferenceTypeCode")?->asText()
+                    ));
+                    break;
+                }
             }
 
             // Process Header Delivery
             $delivery = $transaction->get("ram:ApplicableHeaderTradeDelivery");
             if ($delivery !== null) {
                 $invoice->setDelivery($this->parseDeliveryNode($delivery));
+
+                // BT-16: Despatch advice reference
+                $despatchAdviceNode = $delivery->get("ram:DespatchAdviceReferencedDocument/ram:IssuerAssignedID");
+                if ($despatchAdviceNode !== null) {
+                    $invoice->setDespatchAdviceReference($despatchAdviceNode->asText());
+                }
             }
 
             // Process Header Settlement
             $settlement = $transaction->get("ram:ApplicableHeaderTradeSettlement");
             if ($settlement !== null) {
                 // BT-5: Invoice currency code
-                $paymentRef = $settlement->get("ram:PaymentReference");
                 $currencyNode = $settlement->get("ram:InvoiceCurrencyCode");
                 if ($currencyNode !== null) {
                     $invoice->setCurrency($currencyNode->asText());
                 }
 
-                $paymentMeans = $settlement->get("ram:SpecifiedTradeSettlementPaymentMeans");
-                if ($paymentMeans !== null) {
-                    $paymentMethodType = $paymentMeans->get("ram:TypeCode");
-                    $paymentMethod = $paymentMeans->get("ram:Information");
-                    $finAccount = $paymentMeans->get("ram:PayeePartyCreditorFinancialAccount");
-                    $iban = $finAccount?->get("ram:IBANID");
-                    $accountName = $finAccount?->get("ram:AccountName");
-                    $bank = $paymentMeans->get("ram:PayeeSpecifiedCreditorFinancialInstitution")?->get("ram:BICID");
-
-                    $invoice->addPayment((new Payment())
-                        ->setId($paymentRef?->asText())
-                        ->setMeansCode($paymentMethodType?->asText())
-                        ->setMeansText($paymentMethod?->asText())
-                        ->addTransfer(
-                            (new Transfer())
-                                ->setAccountId($iban?->asText())
-                                ->setAccountName($accountName?->asText())
-                                ->setProvider($bank?->asText())
-                        )
-                    );
-                }
                 // BT-6: VAT accounting currency code
                 $vatCurrencyNode = $settlement->get("ram:TaxCurrencyCode");
                 if ($vatCurrencyNode !== null) {
                     $invoice->setVatCurrency($vatCurrencyNode->asText());
                 }
 
-                // BT-19: Buyer accounting reference
-                $buyerAccountNode = $settlement->get("ram:ReceivableSpecifiedTradeAccountingAccount/ram:ID");
-                if ($buyerAccountNode !== null) {
-                    $invoice->setBuyerAccountingReference($buyerAccountNode->asText());
+                // BG-10: Payee
+                $payeeNode = $settlement->get("ram:PayeeTradeParty");
+                if ($payeeNode !== null) {
+                    $invoice->setPayee($this->parsePartyNode($payeeNode));
+                }
+
+                $this->parsePaymentMeans($invoice, $settlement);
+
+                // BT-7 and BT-8: tax point date and VAT point date code, carried
+                // by the first VAT breakdown entry
+                $firstTax = $settlement->get("ram:ApplicableTradeTax");
+                if ($firstTax !== null) {
+                    $taxPointDateNode = $firstTax->get("ram:TaxPointDate/udt:DateString")
+                        ?? $firstTax->get("ram:TaxPointDate/udt:DateTimeString");
+                    if ($taxPointDateNode !== null) {
+                        $invoice->setTaxPointDate($this->parseDateTime($taxPointDateNode));
+                    }
+                    $vatPointDateCodeNode = $firstTax->get("ram:DueDateTypeCode");
+                    if ($vatPointDateCodeNode !== null) {
+                        $invoice->setVatPointDateCode($vatPointDateCodeNode->asText());
+                    }
+                }
+
+                // BG-14: Invoicing period
+                $periodNode = $settlement->get("ram:BillingSpecifiedPeriod");
+                if ($periodNode !== null) {
+                    $start = $periodNode->get("ram:StartDateTime/udt:DateTimeString");
+                    $end = $periodNode->get("ram:EndDateTime/udt:DateTimeString");
+                    if ($start !== null) {
+                        $invoice->setPeriodStartDate($this->parseDateTime($start));
+                    }
+                    if ($end !== null) {
+                        $invoice->setPeriodEndDate($this->parseDateTime($end));
+                    }
                 }
 
                 // Allowances and Charges (Header)
@@ -187,12 +227,6 @@ class CiiReader extends AbstractReader
                     $invoice->setDueDate($this->parseDateTime($dueDateNode));
                 }
 
-                // BT-7: Tax point date
-                $taxPointDateNode = $settlement->get("ram:TaxApplicableTradeCurrencyExchange/ram:DateString");
-                if ($taxPointDateNode !== null) {
-                    $invoice->setTaxPointDate($this->parseDateTime($taxPointDateNode));
-                }
-
                 // BT-113: Paid amount
                 $paidAmountNode = $settlement->get("ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TotalPrepaidAmount");
                 if ($paidAmountNode !== null) {
@@ -204,35 +238,170 @@ class CiiReader extends AbstractReader
                 if ($roundingAmountNode !== null) {
                     $invoice->setRoundingAmount((float)$roundingAmountNode->asText());
                 }
+
+                // BT-19: Buyer accounting reference
+                $buyerAccountNode = $settlement->get("ram:ReceivableSpecifiedTradeAccountingAccount/ram:ID");
+                if ($buyerAccountNode !== null) {
+                    $invoice->setBuyerAccountingReference($buyerAccountNode->asText());
+                }
+
+                // BT-25 and BT-26: preceding invoice references
+                foreach ($settlement->getAll("ram:InvoiceReferencedDocument") as $refNode) {
+                    $value = $refNode->get("ram:IssuerAssignedID")?->asText();
+                    if ($value === null) {
+                        continue;
+                    }
+                    $dateNode = $refNode->get("ram:FormattedIssueDateTime/qdt:DateTimeString")
+                        ?? $refNode->get("ram:FormattedIssueDateTime/udt:DateTimeString");
+                    $invoice->addPrecedingInvoiceReference(new InvoiceReference(
+                        $value,
+                        ($dateNode !== null) ? $this->parseDateTime($dateNode) : null
+                    ));
+                }
             }
 
             // Invoice lines
             foreach ($transaction->getAll("ram:IncludedSupplyChainTradeLineItem") as $lineNode) {
                 $invoice->addLine($this->parseInvoiceLine($lineNode));
             }
+
+            if ($settlement !== null) {
+                $this->applyExemptionReasonsToLines($invoice, $settlement);
+            }
         }
 
         return $invoice;
     }
 
+    /**
+     * BG-16: payment instructions. One Payment is created per
+     * ram:SpecifiedTradeSettlementPaymentMeans; BT-83 lives at settlement level
+     * and is carried by the first payment.
+     */
+    private function parsePaymentMeans(Invoice $invoice, UXML $settlement): void
+    {
+        $paymentReference = $settlement->get("ram:PaymentReference")?->asText();
+        $creditorIdentifier = $settlement->get("ram:CreditorReferenceID")?->asText();
+        $isFirst = true;
+
+        foreach ($settlement->getAll("ram:SpecifiedTradeSettlementPaymentMeans") as $meansNode) {
+            $payment = new Payment();
+            $payment->setMeansCode($meansNode->get("ram:TypeCode")?->asText());
+            $payment->setMeansText($meansNode->get("ram:Information")?->asText());
+            if ($isFirst && $paymentReference !== null) {
+                $payment->setId($paymentReference);
+            }
+
+            // BG-17: credit transfers
+            foreach ($meansNode->getAll("ram:PayeePartyCreditorFinancialAccount") as $accountNode) {
+                $payment->addTransfer((new Transfer())
+                    ->setAccountId($accountNode->get("ram:IBANID")?->asText())
+                    ->setAccountName($accountNode->get("ram:AccountName")?->asText())
+                    ->setProvider($meansNode->get("ram:PayeeSpecifiedCreditorFinancialInstitution/ram:BICID")?->asText()));
+            }
+
+            // BG-18: payment card information
+            $cardNode = $meansNode->get("ram:ApplicableTradeSettlementFinancialCard");
+            if ($cardNode !== null) {
+                $payment->setCard((new Card())
+                    ->setPan($cardNode->get("ram:ID")?->asText())
+                    ->setHolder($cardNode->get("ram:CardholderName")?->asText()));
+            }
+
+            // BG-19: direct debit
+            $debtorAccount = $meansNode->get("ram:PayerPartyDebtorFinancialAccount/ram:IBANID")?->asText();
+            if ($debtorAccount !== null || ($isFirst && $creditorIdentifier !== null)) {
+                $mandate = new Mandate();
+                $mandate->setAccount($debtorAccount);
+                if ($isFirst && $creditorIdentifier !== null) {
+                    $mandate->setCreditorIdentifier($creditorIdentifier);
+                }
+                $payment->setMandate($mandate);
+            }
+
+            $invoice->addPayment($payment);
+            $isFirst = false;
+        }
+    }
+
+    /**
+     * The model stores exemption reasons on the items, not on the breakdown, so
+     * BT-120/BT-121 are pushed down to the matching lines that lack them.
+     */
+    private function applyExemptionReasonsToLines(Invoice $invoice, UXML $settlement): void
+    {
+        foreach ($settlement->getAll("ram:ApplicableTradeTax") as $taxNode) {
+            $reason = $taxNode->get("ram:ExemptionReason")?->asText();
+            $reasonCode = $taxNode->get("ram:ExemptionReasonCode")?->asText();
+            if ($reason === null && $reasonCode === null) {
+                continue;
+            }
+
+            $category = $taxNode->get("ram:CategoryCode")?->asText();
+            $rateNode = $taxNode->get("ram:RateApplicablePercent");
+            $rate = ($rateNode !== null) ? (float) $rateNode->asText() : null;
+
+            foreach ($invoice->getLines() as $line) {
+                if ($line->getVatCategory() !== $category) {
+                    continue;
+                }
+                $lineRate = $line->getVatRate();
+                if ($rate === null xor $lineRate === null) {
+                    continue;
+                }
+                if ($rate !== null && $lineRate !== null && abs($rate - $lineRate) > 0.005) {
+                    continue;
+                }
+                if ($reason !== null && $line->getVatExemptionReason() === null) {
+                    $line->setVatExemptionReason($reason);
+                }
+                if ($reasonCode !== null && $line->getVatExemptionReasonCode() === null) {
+                    $line->setVatExemptionReasonCode($reasonCode);
+                }
+            }
+        }
+    }
+
+    /**
+     * Parse a date value, rejecting anything the declared format cannot express
+     * @throws InvalidArgumentException if the value is not a valid date
+     */
     private function parseDateTime(UXML $node): DateTime
     {
-        $format = $node->element()->getAttribute('format');
-        $value = $node->asText();
-        if ($format === '102') {
-            return DateTime::createFromFormat('Ymd', $value)->setTime(0, 0, 0);
+        $element = $node->element();
+        $format = $element->hasAttribute('format') ? $element->getAttribute('format') : null;
+        $value = trim($node->asText());
+
+        // The leading "!" resets the time fields to 00:00:00
+        $result = match ($format) {
+            '102' => DateTime::createFromFormat('!Ymd', $value),
+            default => null,
+        };
+        if ($result === null) {
+            try {
+                return new DateTime($value);
+            } catch (\Exception $e) {
+                throw new InvalidArgumentException("Invalid date value: '$value'", 0, $e);
+            }
         }
-        return new DateTime($value);
+        // createFromFormat is lenient and rolls a month 13 or a day 99 over, so
+        // the result has to render back to the value it came from
+        if ($result === false || $result->format('Ymd') !== $value) {
+            throw new InvalidArgumentException("Invalid date value: '$value' for format $format");
+        }
+        return $result;
     }
 
     private function parsePartyNode(UXML $xml): Party
     {
         $party = new Party();
 
-        // BT-29: Global ID
-        $globalIdNode = $xml->get("ram:GlobalID");
-        if ($globalIdNode !== null) {
-            $party->setCompanyId($this->parseIdentifierNode($globalIdNode));
+        // BT-29 and BT-46: party identifiers
+        foreach ($xml->getAll("ram:ID") as $idNode) {
+            $party->addIdentifier($this->parseIdentifierNode($idNode));
+        }
+        foreach ($xml->getAll("ram:GlobalID") as $globalIdNode) {
+            $party->addIdentifier($this->parseIdentifierNode($globalIdNode));
         }
 
         // BT-27: Name
@@ -247,10 +416,10 @@ class CiiReader extends AbstractReader
             $party->setTradingName($tradingNameNode->asText());
         }
 
-        // BT-30: Legal organization
+        // BT-30 and BT-47: legal registration identifier
         $legalOrgNode = $xml->get("ram:SpecifiedLegalOrganization/ram:ID");
         if ($legalOrgNode !== null) {
-            $party->addIdentifier($this->parseIdentifierNode($legalOrgNode));
+            $party->setCompanyId($this->parseIdentifierNode($legalOrgNode));
         }
 
         // Postal address
@@ -388,6 +557,12 @@ class CiiReader extends AbstractReader
             $baseQtyNode = $agreement->get("ram:NetPriceProductTradePrice/ram:BasisQuantity");
             if ($baseQtyNode !== null) {
                 $line->setBaseQuantity((float)$baseQtyNode->asText());
+            }
+
+            // BT-148: Item gross price
+            $grossPriceNode = $agreement->get("ram:GrossPriceProductTradePrice/ram:ChargeAmount");
+            if ($grossPriceNode !== null) {
+                $line->setGrossPrice((float)$grossPriceNode->asText());
             }
 
             // BT-132: Order line reference

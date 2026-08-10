@@ -5,3 +5,4 @@ composer.lock
 /specifications-externes-v3.1
 site/
 docs/reference/*
+.DS_Store

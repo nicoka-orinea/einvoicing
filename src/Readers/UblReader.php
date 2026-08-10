@@ -28,6 +28,11 @@ class UblReader extends AbstractReader {
      * @throws InvalidArgumentException if failed to parse XML
      */
     public function import(string $document): Invoice {
+        // A DOCTYPE serves no purpose here and is an entity expansion vector
+        if (preg_match('/<!DOCTYPE/i', $document) === 1) {
+            throw new InvalidArgumentException("XML documents with a DOCTYPE declaration are not accepted");
+        }
+
         $invoice = new Invoice();
 
         // Load XML document
@@ -87,13 +92,13 @@ class UblReader extends AbstractReader {
         // BT-2: Issue date
         $issueDateNode = $xml->get("{{$cbc}}IssueDate");
         if ($issueDateNode !== null) {
-            $invoice->setIssueDate(new DateTime($issueDateNode->asText()));
+            $invoice->setIssueDate($this->parseDate($issueDateNode->asText()));
         }
 
         // BT-9: Due date
         $dueDateNode = $xml->get("{{$cbc}}DueDate | {{$cac}}PaymentMeans/{{$cbc}}PaymentDueDate");
         if ($dueDateNode !== null) {
-            $invoice->setDueDate(new DateTime($dueDateNode->asText()));
+            $invoice->setDueDate($this->parseDate($dueDateNode->asText()));
         }
 
         // BT-3: Invoice type code
@@ -115,7 +120,7 @@ class UblReader extends AbstractReader {
         // BT-7: Tax point date
         $taxPointDateNode = $xml->get("{{$cbc}}TaxPointDate");
         if ($taxPointDateNode !== null) {
-            $invoice->setTaxPointDate(new DateTime($taxPointDateNode->asText()));
+            $invoice->setTaxPointDate($this->parseDate($taxPointDateNode->asText()));
         }
 
         // BT-5: Invoice currency code
@@ -166,7 +171,7 @@ class UblReader extends AbstractReader {
             $invoiceReference = new InvoiceReference($invoiceReferenceValueNode->asText());
             $invoiceReferenceIssueDateNode = $node->get("{{$cbc}}IssueDate");
             if ($invoiceReferenceIssueDateNode !== null) {
-                $invoiceReference->setIssueDate(new DateTime($invoiceReferenceIssueDateNode->asText()));
+                $invoiceReference->setIssueDate($this->parseDate($invoiceReferenceIssueDateNode->asText()));
             }
             $invoice->addPrecedingInvoiceReference($invoiceReference);
         }
@@ -183,8 +188,30 @@ class UblReader extends AbstractReader {
             $invoice->setContractReference($contractReferenceNode->asText());
         }
 
-        // BG-24: Attachment nodes
+        // BT-16: Despatch advice reference
+        $despatchAdviceReferenceNode = $xml->get("{{$cac}}DespatchDocumentReference/{{$cbc}}ID");
+        if ($despatchAdviceReferenceNode !== null) {
+            $invoice->setDespatchAdviceReference($despatchAdviceReferenceNode->asText());
+        }
+
+        // BT-18, BT-11 and BG-24: invoiced object identifier, project reference
+        // and attachment nodes. Codes "130" and "50" are reserved and never
+        // describe a supporting document.
         foreach ($xml->getAll("{{$cac}}AdditionalDocumentReference") as $node) {
+            $documentTypeCode = $node->get("{{$cbc}}DocumentTypeCode")?->asText();
+            $identifierNode = $node->get("{{$cbc}}ID");
+            if ($documentTypeCode === '130') {
+                if ($identifierNode !== null) {
+                    $invoice->setInvoicedObjectIdentifier($this->parseIdentifierNode($identifierNode));
+                }
+                continue;
+            }
+            if ($documentTypeCode === '50') {
+                if ($identifierNode !== null) {
+                    $invoice->setProjectReference($identifierNode->asText());
+                }
+                continue;
+            }
             $invoice->addAttachment($this->parseAttachmentNode($node));
         }
 
@@ -210,6 +237,12 @@ class UblReader extends AbstractReader {
         $payeeNode = $xml->get("{{$cac}}PayeeParty");
         if ($payeeNode !== null) {
             $invoice->setPayee($this->parsePayeeNode($payeeNode));
+        }
+
+        // BG-11: Seller tax representative
+        $taxRepresentativeNode = $xml->get("{{$cac}}TaxRepresentativeParty");
+        if ($taxRepresentativeNode !== null) {
+            $invoice->setTaxRepresentative($this->parseTaxRepresentativeNode($taxRepresentativeNode));
         }
 
         // Delivery node
@@ -273,6 +306,29 @@ class UblReader extends AbstractReader {
 
 
     /**
+     * Parse a UBL date value (xs:date), rejecting anything unparseable
+     * @param  string   $value Date value
+     * @return DateTime        Parsed date
+     * @throws InvalidArgumentException if the value is not a valid date
+     */
+    private function parseDate(string $value): DateTime {
+        $value = trim($value);
+        // The leading "!" resets the time fields to 00:00:00
+        $result = DateTime::createFromFormat('!Y-m-d', $value);
+        // createFromFormat is lenient and rolls a month 13 or a day 99 over, so
+        // the result has to render back to the value it came from
+        if ($result !== false && $result->format('Y-m-d') === $value) {
+            return $result;
+        }
+        try {
+            return new DateTime($value);
+        } catch (\Exception $e) {
+            throw new InvalidArgumentException("Invalid date value: '$value'", 0, $e);
+        }
+    }
+
+
+    /**
      * Parse identifier node
      * @param  UXML       $xml        XML node
      * @param  string     $schemeAttr Scheme attribute name
@@ -297,13 +353,21 @@ class UblReader extends AbstractReader {
         // Period start date
         $startDateNode = $xml->get("{{$cac}}InvoicePeriod/{{$cbc}}StartDate");
         if ($startDateNode !== null) {
-            $target->setPeriodStartDate(new DateTime($startDateNode->asText()));
+            $target->setPeriodStartDate($this->parseDate($startDateNode->asText()));
         }
 
         // Period end date
         $endDateNode = $xml->get("{{$cac}}InvoicePeriod/{{$cbc}}EndDate");
         if ($endDateNode !== null) {
-            $target->setPeriodEndDate(new DateTime($endDateNode->asText()));
+            $target->setPeriodEndDate($this->parseDate($endDateNode->asText()));
+        }
+
+        // BT-8: VAT point date code, document level only
+        if ($target instanceof Invoice) {
+            $descriptionCodeNode = $xml->get("{{$cac}}InvoicePeriod/{{$cbc}}DescriptionCode");
+            if ($descriptionCodeNode !== null) {
+                $target->setVatPointDateCode($descriptionCodeNode->asText());
+            }
         }
     }
 
@@ -476,6 +540,38 @@ class UblReader extends AbstractReader {
 
 
     /**
+     * Parse seller tax representative node (BG-11)
+     * @param  UXML  $xml XML node
+     * @return Party      Party instance
+     */
+    private function parseTaxRepresentativeNode(UXML $xml): Party {
+        $party = new Party();
+        $cac = UblWriter::NS_CAC;
+        $cbc = UblWriter::NS_CBC;
+
+        // BT-62: Tax representative name
+        $nameNode = $xml->get("{{$cac}}PartyName/{{$cbc}}Name");
+        if ($nameNode !== null) {
+            $party->setName($nameNode->asText());
+        }
+
+        // BG-12: Tax representative postal address
+        $addressNode = $xml->get("{{$cac}}PostalAddress");
+        if ($addressNode !== null) {
+            $this->parsePostalAddressFields($addressNode, $party);
+        }
+
+        // BT-63: Tax representative VAT identifier
+        $vatNumberNode = $xml->get("{{$cac}}PartyTaxScheme/{{$cbc}}CompanyID");
+        if ($vatNumberNode !== null) {
+            $party->setVatNumber($vatNumberNode->asText());
+        }
+
+        return $party;
+    }
+
+
+    /**
      * Parse delivery node
      * @param  UXML     $xml XML node
      * @return Delivery      Delivery instance
@@ -488,7 +584,7 @@ class UblReader extends AbstractReader {
         // BT-72: Actual delivery date
         $dateNode = $xml->get("{{$cbc}}ActualDeliveryDate");
         if ($dateNode !== null) {
-            $delivery->setDate(new DateTime($dateNode->asText()));
+            $delivery->setDate($this->parseDate($dateNode->asText()));
         }
 
         // BT-71: Delivery location identifier
@@ -877,12 +973,15 @@ class UblReader extends AbstractReader {
             $attachment->setDescription($descriptionNode->asText());
         }
 
-        // BT-125: Attached document
+        // BT-125: Attached document. Corrupt base64 is tolerated on reading: the
+        // rest of the attachment is kept and only the payload is dropped.
         $embeddedDocumentNode = $xml->get("{{$cac}}Attachment/{{$cbc}}EmbeddedDocumentBinaryObject");
         if ($embeddedDocumentNode !== null) {
             $embeddedDocumentElement = $embeddedDocumentNode->element();
-            // @phan-suppress-next-line PhanPossiblyFalseTypeArgument
-            $attachment->setContents(base64_decode($embeddedDocumentNode->asText()));
+            $contents = base64_decode($embeddedDocumentNode->asText(), true);
+            if ($contents !== false) {
+                $attachment->setContents($contents);
+            }
             if ($embeddedDocumentElement->hasAttribute('mimeCode')) {
                 $attachment->setMimeCode($embeddedDocumentElement->getAttribute('mimeCode'));
             }

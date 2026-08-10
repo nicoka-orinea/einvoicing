@@ -28,6 +28,11 @@ class CdarReader
      */
     public function import(string $document): CrossDomainAcknowledgementAndResponse
     {
+        // A DOCTYPE serves no purpose here and is an entity expansion vector
+        if (preg_match('/<!DOCTYPE/i', $document) === 1) {
+            throw new InvalidArgumentException("XML documents with a DOCTYPE declaration are not accepted");
+        }
+
         $cdar = new CrossDomainAcknowledgementAndResponse();
         $xml = UXML::fromString($document);
 
@@ -74,8 +79,7 @@ class CdarReader
             $cdar->setExchangedDocument($exchanged);
         }
 
-        $ackNode = $xml->get("rsm:AcknowledgementDocument");
-        if ($ackNode !== null) {
+        foreach ($xml->getAll("rsm:AcknowledgementDocument") as $ackNode) {
             $ack = new AcknowledgementDocument();
             $multipleNode = $ackNode->get("ram:MultipleReferencesIndicator/udt:Indicator");
             if ($multipleNode !== null) {
@@ -94,10 +98,24 @@ class CdarReader
             if ($referenceNode !== null) {
                 $ack->setReference($this->parseReferenceReferencedDocument($referenceNode));
             }
-            $cdar->setAcknowledgementDocument($ack);
+            $cdar->addAcknowledgementDocument($ack);
         }
 
         return $cdar;
+    }
+
+
+    /**
+     * Read an attribute, telling an absent one from an empty one.
+     * DOMElement::getAttribute() returns an empty string for both.
+     */
+    private function attr(?UXML $node, string $name): ?string
+    {
+        if ($node === null) {
+            return null;
+        }
+        $element = $node->element();
+        return $element->hasAttribute($name) ? $element->getAttribute($name) : null;
     }
 
     private function parseReferenceReferencedDocument(UXML $node): ReferenceReferencedDocument
@@ -162,15 +180,17 @@ class CdarReader
         if ($referenceDateNode !== null) {
             $status->setReferenceDateTime($this->parseDateTime($referenceDateNode));
         }
+        // The label carried by the document always wins; the code is only used to
+        // derive one when the element is absent
+        $processNode = $node->get("ram:ProcessCondition");
         $processCodeNode = $node->get("ram:ProcessConditionCode");
         if ($processCodeNode !== null) {
-            $processCode = $processCodeNode->asText();
-            $status->setProcessConditionCode($processCode);
-            $status->setProcessCondition($this->resolveProcessConditionLabel($processCode, null));
+            $status->setProcessConditionCode($processCodeNode->asText());
         }
-        $processNode = $node->get("ram:ProcessCondition");
         if ($processNode !== null) {
             $status->setProcessCondition($processNode->asText());
+        } elseif ($processCodeNode !== null) {
+            $status->setProcessCondition($this->resolveProcessConditionLabel($processCodeNode->asText(), null));
         }
         $reasonCodeNode = $node->get("ram:ReasonCode");
         if ($reasonCodeNode !== null) {
@@ -191,6 +211,19 @@ class CdarReader
         $sequenceNode = $node->get("ram:SequenceNumeric");
         if ($sequenceNode !== null) {
             $status->setSequenceNumeric((int) $sequenceNode->asText());
+        }
+        foreach ($node->getAll("ram:IncludedNote") as $noteNode) {
+            $contentNode = $noteNode->get("ram:Content");
+            $content = $contentNode?->asText();
+            if ($content === null) {
+                continue;
+            }
+            $status->addIncludedNote(
+                $content,
+                $this->attr($contentNode, 'languageID'),
+                $noteNode->get("ram:ContentCode")?->asText(),
+                $noteNode->get("ram:SubjectCode")?->asText()
+            );
         }
         foreach ($node->getAll("ram:SpecifiedDocumentCharacteristic") as $characteristicNode) {
             $status->addCharacteristic($this->parseSpecifiedDocumentCharacteristic($characteristicNode));
@@ -229,7 +262,7 @@ class CdarReader
         if ($amountNode !== null) {
             $amount = new ValueAmount();
             $amount->setAmount(floatval($amountNode->asText()));
-            $currencyId = $amountNode->element()->getAttribute('currencyID');
+            $currencyId = $this->attr($amountNode, 'currencyID');
             if ($currencyId !== null) {
                 $amount->setCurrencyId($currencyId);
             }
@@ -252,7 +285,7 @@ class CdarReader
         $globalNode = $node->get("ram:GlobalID");
         if ($globalNode !== null) {
             $party->setGlobalId($globalNode->asText());
-            $scheme = $globalNode->element()->getAttribute('schemeID');
+            $scheme = $this->attr($globalNode, 'schemeID');
             if ($scheme !== null) {
                 $party->setGlobalIdScheme($scheme);
             }
@@ -268,7 +301,7 @@ class CdarReader
         $uriNode = $node->get("ram:URIUniversalCommunication/ram:URIID");
         if ($uriNode !== null) {
             $party->setUri($uriNode->asText());
-            $scheme = $uriNode->element()->getAttribute('schemeID');
+            $scheme = $this->attr($uriNode, 'schemeID');
             if ($scheme !== null) {
                 $party->setUriScheme($scheme);
             }
@@ -276,17 +309,34 @@ class CdarReader
         return $party;
     }
 
+    /**
+     * Parse a date value, rejecting anything the declared format cannot express
+     * @throws InvalidArgumentException if the value is not a valid date
+     */
     private function parseDateTime(UXML $node): DateTime
     {
-        $format = $node->element()->getAttribute('format');
-        $value = $node->asText();
-        if ($format === '102') {
-            return DateTime::createFromFormat('Ymd', $value)->setTime(0, 0, 0);
+        $format = $this->attr($node, 'format');
+        $value = trim($node->asText());
+
+        // The leading "!" resets the time fields to 00:00:00
+        [$result, $canonical] = match ($format) {
+            '102' => [DateTime::createFromFormat('!Ymd', $value), 'Ymd'],
+            '204' => [DateTime::createFromFormat('YmdHis', $value), 'YmdHis'],
+            default => [null, null],
+        };
+        if ($result === null) {
+            try {
+                return new DateTime($value);
+            } catch (\Exception $e) {
+                throw new InvalidArgumentException("Invalid date value: '$value'", 0, $e);
+            }
         }
-        if ($format === '204') {
-            return DateTime::createFromFormat('YmdHis', $value);
+        // createFromFormat is lenient and rolls a month 13 or a day 99 over, so
+        // the result has to render back to the value it came from
+        if ($result === false || $canonical === null || $result->format($canonical) !== $value) {
+            throw new InvalidArgumentException("Invalid date value: '$value' for format $format");
         }
-        return new DateTime($value);
+        return $result;
     }
 
     private function parseIndicator(string $value): bool

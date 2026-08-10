@@ -68,8 +68,10 @@ final class InvoiceTotalsTest extends TestCase {
             ->addAllowance($allowance);
         $totals = $this->invoice->getTotals();
 
+        // The first item to provide a reason wins: a later item disagreeing does
+        // not silently replace it, which is a validation matter
         $this->assertEquals('VATEX-EU-O', $totals->vatBreakdown[0]->exemptionReasonCode);
-        $this->assertEquals('Another reason expressed as text', $totals->vatBreakdown[0]->exemptionReason);
+        $this->assertEquals('Not subject to VAT', $totals->vatBreakdown[0]->exemptionReason);
         $this->assertEquals(null, $totals->vatBreakdown[1]->exemptionReason);
         $this->assertEquals('VATEX-EU-132-1P', $totals->vatBreakdown[1]->exemptionReasonCode);
     }
