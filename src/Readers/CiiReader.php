@@ -170,6 +170,15 @@ class CiiReader extends AbstractReader
                     $invoice->setBuyerAccountingReference($buyerAccountNode->asText());
                 }
 
+                // BT-73 / BT-74: Invoice-level billing period
+                $periodNode = $settlement->get("ram:BillingSpecifiedPeriod");
+                if ($periodNode !== null) {
+                    $start = $periodNode->get("ram:StartDateTime/udt:DateTimeString");
+                    $end = $periodNode->get("ram:EndDateTime/udt:DateTimeString");
+                    if ($start) $invoice->setPeriodStartDate($this->parseDateTime($start));
+                    if ($end) $invoice->setPeriodEndDate($this->parseDateTime($end));
+                }
+
                 // Allowances and Charges (Header)
                 foreach ($settlement->getAll("ram:SpecifiedTradeAllowanceCharge") as $acNode) {
                     $this->addAllowanceOrCharge($invoice, $acNode);

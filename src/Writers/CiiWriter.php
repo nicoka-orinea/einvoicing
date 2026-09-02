@@ -141,6 +141,13 @@ class CiiWriter extends AbstractWriter
             // EN16931/CII : les prix sont HT
             $agreement = $lineItem->add("ram:SpecifiedLineTradeAgreement");
 
+            // NOTE: the LineTradeAgreementType XSD sequence puts BuyerOrderReferencedDocument
+            // (BT-132) before the price elements
+            if ($line->getOrderLineReference() !== null) {
+                $agreement->add("ram:BuyerOrderReferencedDocument")
+                    ->add("ram:LineID", $line->getOrderLineReference());
+            }
+
             $baseQty = max(1.0, (float)$line->getBaseQuantity());
             $netUnitPrice = (float)$line->getPrice() / $baseQty;
 
@@ -154,11 +161,6 @@ class CiiWriter extends AbstractWriter
                     "unitCode" => $line->getUnit()
                 ]);
             }
-            if ($line->getOrderLineReference() !== null) {
-                $agreement->add("ram:BuyerOrderReferencedDocument")
-                    ->add("ram:LineID", $line->getOrderLineReference());
-            }
-
             $lineItem->add("ram:SpecifiedLineTradeDelivery")
                 ->add("ram:BilledQuantity", $line->getQuantity(), [
                     "unitCode" => $line->getUnit()
@@ -167,6 +169,13 @@ class CiiWriter extends AbstractWriter
             $settlement = $lineItem->add("ram:SpecifiedLineTradeSettlement");
 
             $this->addLineTradeTax($settlement, $line);
+
+            // NOTE: the LineTradeSettlementType XSD sequence is
+            // ApplicableTradeTax -> BillingSpecifiedPeriod -> SpecifiedTradeAllowanceCharge ->
+            // SpecifiedTradeSettlementLineMonetarySummation -> ... -> ReceivableSpecifiedTradeAccountingAccount
+            if ($line->getPeriodStartDate() && $line->getPeriodEndDate()) {
+                $this->addBillingPeriod($settlement, $line);
+            }
 
             $baseAmountForPercent = (float)$line->getNetAmountBeforeAllowancesCharges();
 
@@ -192,19 +201,15 @@ class CiiWriter extends AbstractWriter
                 );
             }
 
-            if ($line->getPeriodStartDate() && $line->getPeriodEndDate()) {
-                $this->addBillingPeriod($settlement, $line);
-            }
+            // ✅ BT-131 (Invoice line net amount) = net de ligne APRÈS remises/charges de ligne
+            $settlement
+                ->add("ram:SpecifiedTradeSettlementLineMonetarySummation")
+                ->add("ram:LineTotalAmount", $this->formatCurrency((float)$line->getNetAmount()));
 
             if ($line->getBuyerAccountingReference() !== null) {
                 $settlement->add("ram:ReceivableSpecifiedTradeAccountingAccount")
                     ->add("ram:ID", $line->getBuyerAccountingReference());
             }
-
-            // ✅ BT-131 (Invoice line net amount) = net de ligne APRÈS remises/charges de ligne
-            $settlement
-                ->add("ram:SpecifiedTradeSettlementLineMonetarySummation")
-                ->add("ram:LineTotalAmount", $this->formatCurrency((float)$line->getNetAmount()));
         }
     }
 
@@ -317,19 +322,18 @@ class CiiWriter extends AbstractWriter
 
     private function addHeaderSettlement(UXML $parent, Invoice $invoice): void
     {
+        // NOTE: the HeaderTradeSettlementType XSD sequence is strict:
+        // PaymentReference -> TaxCurrencyCode -> InvoiceCurrencyCode -> ... ->
+        // InvoiceReferencedDocument -> ReceivableSpecifiedTradeAccountingAccount (last)
         $settlement = $parent->add("ram:ApplicableHeaderTradeSettlement");
-        $settlement->add("ram:InvoiceCurrencyCode", $invoice->getCurrency());
-        if ($invoice->getVatCurrency() !== null) {
-            $settlement->add("ram:TaxCurrencyCode", $invoice->getVatCurrency());
-        }
         $firstPayment = $invoice->getPayments()[0] ?? null;
         if ($firstPayment?->getId() !== null) {
             $settlement->add("ram:PaymentReference", $firstPayment->getId());
         }
-        if ($invoice->getBuyerAccountingReference() !== null) {
-            $settlement->add("ram:ReceivableSpecifiedTradeAccountingAccount")
-                ->add("ram:ID", $invoice->getBuyerAccountingReference());
+        if ($invoice->getVatCurrency() !== null) {
+            $settlement->add("ram:TaxCurrencyCode", $invoice->getVatCurrency());
         }
+        $settlement->add("ram:InvoiceCurrencyCode", $invoice->getCurrency());
         $this->addPaymentMeans($settlement, $invoice);
 
         $totals = $invoice->getTotals();
@@ -361,6 +365,12 @@ class CiiWriter extends AbstractWriter
          * 3) On écrit les remises/majorations header (split par breakdown AVANT adjustments),
          *    car la base des % est la base taxable "pré-remise header".
          */
+        // Invoice-level billing period (BT-73 / BT-74) — must sit between
+        // ApplicableTradeTax and SpecifiedTradeAllowanceCharge in the XSD sequence
+        if ($invoice->getPeriodStartDate() !== null && $invoice->getPeriodEndDate() !== null) {
+            $this->addBillingPeriod($settlement, $invoice);
+        }
+
         foreach ($invoice->getCharges() as $charge) {
             $this->addHeaderAllowanceOrChargeSplitByVat($settlement, $charge, true, $totals->vatBreakdown);
         }
@@ -391,6 +401,12 @@ class CiiWriter extends AbstractWriter
                         "format" => "102"
                     ]);
             }
+        }
+
+        // BT-19 — last element of the XSD sequence, after InvoiceReferencedDocument
+        if ($invoice->getBuyerAccountingReference() !== null) {
+            $settlement->add("ram:ReceivableSpecifiedTradeAccountingAccount")
+                ->add("ram:ID", $invoice->getBuyerAccountingReference());
         }
     }
 
@@ -746,14 +762,15 @@ class CiiWriter extends AbstractWriter
         $lineTotal = round((float) $totals->netAmount, 2);
         $sum->add("ram:LineTotalAmount", $this->formatCurrency($lineTotal));
 
+        // NOTE: XSD order — ChargeTotalAmount (BT-108) before AllowanceTotalAmount (BT-107)
+        $chargeTotal = round($this->headerChargeTotal, 2);
+        if ($chargeTotal > 0) {
+            $sum->add("ram:ChargeTotalAmount", $this->formatCurrency($chargeTotal));
+        }
         // BT-107 = Σ BT-92 (exactement ce qui a été écrit)
         $allowanceTotal = round($this->headerAllowanceTotal, 2);
         if ($allowanceTotal > 0) {
             $sum->add("ram:AllowanceTotalAmount", $this->formatCurrency($allowanceTotal));
-        }
-        $chargeTotal = round($this->headerChargeTotal, 2);
-        if ($chargeTotal > 0) {
-            $sum->add("ram:ChargeTotalAmount", $this->formatCurrency($chargeTotal));
         }
 
         // BT-109 = base taxable
@@ -770,14 +787,15 @@ class CiiWriter extends AbstractWriter
             "currencyID" => $currency
         ]);
 
+        // NOTE: XSD order — RoundingAmount (BT-114) before GrandTotalAmount (BT-112)
+        if ((float) $totals->roundingAmount !== 0.0) {
+            $sum->add("ram:RoundingAmount", $this->formatCurrency((float) $totals->roundingAmount));
+        }
         // BT-112
         $grandTotal = round($taxBasis + $vatTotal, 2);
         $sum->add("ram:GrandTotalAmount", $this->formatCurrency($grandTotal));
         if ((float) $totals->paidAmount > 0) {
             $sum->add("ram:TotalPrepaidAmount", $this->formatCurrency((float) $totals->paidAmount));
-        }
-        if ((float) $totals->roundingAmount !== 0.0) {
-            $sum->add("ram:RoundingAmount", $this->formatCurrency((float) $totals->roundingAmount));
         }
         $duePayable = round($grandTotal - (float) $totals->paidAmount + (float) $totals->roundingAmount, 2);
         $sum->add("ram:DuePayableAmount", $this->formatCurrency($duePayable));
