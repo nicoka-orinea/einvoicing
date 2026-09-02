@@ -288,13 +288,15 @@ class CiiWriter extends AbstractWriter
         }
         $this->addParty($agreement->add("ram:SellerTradeParty"), $invoice->getSeller());
         $this->addParty($agreement->add("ram:BuyerTradeParty"), $invoice->getBuyer());
-        if ($invoice->getPurchaseOrderReference() !== null) {
-            $agreement->add("ram:BuyerOrderReferencedDocument")
-                ->add("ram:IssuerAssignedID", $invoice->getPurchaseOrderReference());
-        }
+        // NOTE: the XSD sequence requires SellerOrderReferencedDocument (BT-14)
+        // before BuyerOrderReferencedDocument (BT-13)
         if ($invoice->getSalesOrderReference() !== null) {
             $agreement->add("ram:SellerOrderReferencedDocument")
                 ->add("ram:IssuerAssignedID", $invoice->getSalesOrderReference());
+        }
+        if ($invoice->getPurchaseOrderReference() !== null) {
+            $agreement->add("ram:BuyerOrderReferencedDocument")
+                ->add("ram:IssuerAssignedID", $invoice->getPurchaseOrderReference());
         }
         if ($invoice->getContractReference() !== null) {
             $agreement->add("ram:ContractReferencedDocument")
