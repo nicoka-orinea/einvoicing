@@ -129,12 +129,6 @@ final class CiiWriterTest extends TestCase {
         $this->assertSame('CT-1', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:ContractReferencedDocument/ram:IssuerAssignedID')->asText());
 
         // XSD sequence of HeaderTradeAgreementType: Seller order ref (BT-14) must precede buyer order ref (BT-13)
-        $agreementChildren = [];
-        foreach ($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement')->element()->childNodes as $child) {
-            if ($child instanceof \DOMElement) {
-                $agreementChildren[] = $child->localName;
-            }
-        }
         $this->assertSame([
             'BuyerReference',
             'SellerTradeParty',
@@ -142,7 +136,48 @@ final class CiiWriterTest extends TestCase {
             'SellerOrderReferencedDocument',
             'BuyerOrderReferencedDocument',
             'ContractReferencedDocument',
-        ], $agreementChildren);
+        ], $this->childLocalNames($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement')));
+
+        // XSD sequence of HeaderTradeSettlementType
+        $this->assertSame([
+            'PaymentReference',
+            'TaxCurrencyCode',
+            'InvoiceCurrencyCode',
+            'SpecifiedTradeSettlementPaymentMeans',
+            'ApplicableTradeTax',
+            'SpecifiedTradeAllowanceCharge',
+            'SpecifiedTradeAllowanceCharge',
+            'SpecifiedTradePaymentTerms',
+            'SpecifiedTradeSettlementHeaderMonetarySummation',
+            'ReceivableSpecifiedTradeAccountingAccount',
+        ], $this->childLocalNames($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement')));
+
+        // XSD sequence of TradeSettlementHeaderMonetarySummationType
+        $this->assertSame([
+            'LineTotalAmount',
+            'ChargeTotalAmount',
+            'AllowanceTotalAmount',
+            'TaxBasisTotalAmount',
+            'TaxTotalAmount',
+            'RoundingAmount',
+            'GrandTotalAmount',
+            'TotalPrepaidAmount',
+            'DuePayableAmount',
+        ], $this->childLocalNames($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation')));
+
+        // XSD sequence of LineTradeAgreementType: BuyerOrderReferencedDocument (BT-132) first
+        $this->assertSame([
+            'BuyerOrderReferencedDocument',
+            'GrossPriceProductTradePrice',
+            'NetPriceProductTradePrice',
+        ], $this->childLocalNames($xml->get('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeAgreement')));
+
+        // XSD sequence of LineTradeSettlementType: accounting account after monetary summation
+        $this->assertSame([
+            'ApplicableTradeTax',
+            'SpecifiedTradeSettlementLineMonetarySummation',
+            'ReceivableSpecifiedTradeAccountingAccount',
+        ], $this->childLocalNames($xml->get('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeSettlement')));
         $this->assertSame('2.00', $xml->get('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeAgreement/ram:NetPriceProductTradePrice/ram:BasisQuantity')->asText());
         $this->assertSame('ACC-1', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:ReceivableSpecifiedTradeAccountingAccount/ram:ID')->asText());
         $this->assertSame('PAY-1', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:PaymentReference')->asText());
@@ -186,5 +221,16 @@ final class CiiWriterTest extends TestCase {
         $xml = UXML::fromString((new CiiWriter())->export($invoice));
 
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:InvoiceReferencedDocument'));
+    }
+
+    /** @return string[] element children local names, in document order */
+    private function childLocalNames(UXML $node): array {
+        $names = [];
+        foreach ($node->element()->childNodes as $child) {
+            if ($child instanceof \DOMElement) {
+                $names[] = $child->localName;
+            }
+        }
+        return $names;
     }
 }
