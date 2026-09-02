@@ -3,6 +3,7 @@
 namespace Einvoicing\Flux10;
 
 use DateTime;
+use Einvoicing\Flux10\Enums\TransactionCategoryCode;
 use OutOfBoundsException;
 use function array_splice;
 use function count;
@@ -22,10 +23,10 @@ class Transaction
     protected $currencyCode = null;
 
     /**
-     * Category code (TLB1, TPS1, TNT1, TMA1).
-     * @var string|null
+     * Transaction category (TT-81, G1.68).
+     * @var TransactionCategoryCode|null
      */
-    protected $categoryCode = null;
+    protected ?TransactionCategoryCode $categoryCode = null;
 
     /**
      * Amount without VAT.
@@ -34,10 +35,20 @@ class Transaction
     protected float|string|null $taxExclusiveAmount = null;
 
     /**
-     * VAT amount.
+     * VAT amount, in the transactions currency.
      * @var float|string|null
      */
     protected float|string|null $taxAmount = null;
+
+    /**
+     * Total VAT amount converted to euros (TT-83).
+     *
+     * Required when the transactions currency is not EUR (G6.23). Conversion is a
+     * business decision and is never performed by the library.
+     *
+     * @var float|string|null
+     */
+    protected float|string|null $vatAmountEur = null;
 
     /**
      * VAT breakdown lines.
@@ -94,19 +105,23 @@ class Transaction
     }
 
     /**
-     * Get category code.
+     * Get transaction category (TT-81).
      */
-    public function getCategoryCode(): ?string
+    public function getCategoryCode(): ?TransactionCategoryCode
     {
         return $this->categoryCode;
     }
 
     /**
-     * Set category code.
+     * Set transaction category (TT-81, G1.68).
+     *
+     * @param TransactionCategoryCode|string|null $categoryCode `TLB1`, `TPS1`, `TNT1` or `TMA1`
      */
-    public function setCategoryCode(?string $categoryCode): self
+    public function setCategoryCode(TransactionCategoryCode|string|null $categoryCode): self
     {
-        $this->categoryCode = $categoryCode;
+        $this->categoryCode = is_string($categoryCode)
+            ? TransactionCategoryCode::from($categoryCode)
+            : $categoryCode;
         return $this;
     }
 
@@ -145,6 +160,27 @@ class Transaction
     public function setTaxAmount(float|string|null $taxAmount): self
     {
         $this->taxAmount = $taxAmount;
+        return $this;
+    }
+
+    /**
+     * Get total VAT amount in euros (TT-83).
+     */
+    public function getVatAmountEur(): float|string|null
+    {
+        return $this->vatAmountEur;
+    }
+
+    /**
+     * Set total VAT amount in euros (TT-83, G6.23).
+     *
+     * Required when the transactions currency is not EUR.
+     *
+     * @param float|string|null $vatAmountEur
+     */
+    public function setVatAmountEur(float|string|null $vatAmountEur): self
+    {
+        $this->vatAmountEur = $vatAmountEur;
         return $this;
     }
 

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report>
+  <ReportDocument>
+    <Id>INV-1</Id>
+    <IssueDateTime>
+      <DateTimeString>@@TIMESTAMP@@</DateTimeString>
+    </IssueDateTime>
+    <TypeCode>IN</TypeCode>
+    <Sender>
+      <Id schemeId="0238">PA01</Id>
+      <Name>Accredited Platform SA</Name>
+      <RoleCode>WK</RoleCode>
+    </Sender>
+    <Issuer>
+      <Id schemeId="0002">123456789</Id>
+      <Name>Seller SA</Name>
+      <RoleCode>SE</RoleCode>
+      <URIUniversalCommunication>
+        <URIID>iso6523-actorid-upis::0225:12345678900023</URIID>
+      </URIUniversalCommunication>
+    </Issuer>
+  </ReportDocument>
+  <TransactionsReport>
+    <ReportPeriod>
+      <StartDate>20260101</StartDate>
+      <EndDate>20260131</EndDate>
+    </ReportPeriod>
+    <Invoice>
+      <ID>INV-1</ID>
+      <IssueDate>20260110</IssueDate>
+      <TypeCode>380</TypeCode>
+      <CurrencyCode>EUR</CurrencyCode>
+      <BusinessProcess>
+        <ID>S1</ID>
+        <TypeID>urn.cpro.gouv.fr:1p0:ereporting</TypeID>
+      </BusinessProcess>
+      <Seller>
+        <CompanyId schemeId="0002">123456789</CompanyId>
+        <TaxRegistrationId qualifyingId="VAT">FR12345678901</TaxRegistrationId>
+        <PostalAddress>
+          <CountryId>FR</CountryId>
+        </PostalAddress>
+      </Seller>
+      <Buyer>
+        <CompanyId schemeId="0223">DE123456789</CompanyId>
+        <TaxRegistrationId qualifyingId="VAT">DE123456789</TaxRegistrationId>
+        <PostalAddress>
+          <CountryId>DE</CountryId>
+        </PostalAddress>
+      </Buyer>
+      <MonetaryTotal>
+        <TaxExclusiveAmount>1000.00</TaxExclusiveAmount>
+        <TaxAmount CurrencyCode="EUR">200.00</TaxAmount>
+      </MonetaryTotal>
+      <TaxSubTotal>
+        <TaxableAmount>1000.00</TaxableAmount>
+        <TaxAmount>200.00</TaxAmount>
+        <TaxCategory>
+          <Code>S</Code>
+          <Percent>20.00</Percent>
+        </TaxCategory>
+      </TaxSubTotal>
+      <Line>
+        <BilledQuantity UnitCode="C62">1.00</BilledQuantity>
+        <Price>
+          <PriceAmount>1000.00</PriceAmount>
+        </Price>
+        <Product>
+          <Name>Line</Name>
+        </Product>
+      </Line>
+    </Invoice>
+  </TransactionsReport>
+</Report>

@@ -2,12 +2,16 @@
 
 namespace Einvoicing\Flux10;
 
+use DateTimeInterface;
+use Einvoicing\Flux10\Enums\TransmissionTypeCode;
 use OutOfBoundsException;
 use function array_splice;
 use function count;
 
 class Report
 {
+    use ReportValidationTrait;
+
     /**
      * Report identifier.
      * @var string|null
@@ -21,14 +25,25 @@ class Report
     protected $reportName = null;
 
     /**
-     * Transmission type (IN, RE).
-     * @var string
+     * Transmission type (TT-4, G8.01).
+     * @var TransmissionTypeCode
      */
-    protected $transmissionType = 'IN';
+    protected TransmissionTypeCode $transmissionType = TransmissionTypeCode::INITIAL;
 
     /**
-     * Sender party.
-     * @var Party|null
+     * Transmission creation timestamp (TT-3).
+     *
+     * Left null, the writer stamps the export time. Set it explicitly to replay a
+     * transmission or to satisfy G7.43, which requires this timestamp to fall after the
+     * end of the declared period.
+     *
+     * @var DateTimeInterface|string|null
+     */
+    protected DateTimeInterface|string|null $issueDateTime = null;
+
+    /**
+     * Emitting accredited platform (TG-3).
+     * @var Sender|null
      */
     protected $sender = null;
 
@@ -103,34 +118,57 @@ class Report
     }
 
     /**
-     * Get transmission type.
+     * Get transmission type (TT-4).
      */
-    public function getTransmissionType(): string
+    public function getTransmissionType(): TransmissionTypeCode
     {
         return $this->transmissionType;
     }
 
     /**
-     * Set transmission type.
+     * Set transmission type (TT-4, G8.01).
+     *
+     * @param TransmissionTypeCode|string $transmissionType `IN` or `RE` when a string
      */
-    public function setTransmissionType(string $transmissionType): self
+    public function setTransmissionType(TransmissionTypeCode|string $transmissionType): self
     {
-        $this->transmissionType = $transmissionType;
+        $this->transmissionType = is_string($transmissionType)
+            ? TransmissionTypeCode::from($transmissionType)
+            : $transmissionType;
         return $this;
     }
 
     /**
-     * Get sender party.
+     * Get transmission creation timestamp (TT-3).
      */
-    public function getSender(): ?Party
+    public function getIssueDateTime(): DateTimeInterface|string|null
+    {
+        return $this->issueDateTime;
+    }
+
+    /**
+     * Set transmission creation timestamp (TT-3).
+     *
+     * @param DateTimeInterface|string|null $issueDateTime `AAAAMMJJHHMMSS` when a string
+     */
+    public function setIssueDateTime(DateTimeInterface|string|null $issueDateTime): self
+    {
+        $this->issueDateTime = $issueDateTime;
+        return $this;
+    }
+
+    /**
+     * Get emitting accredited platform (TG-3).
+     */
+    public function getSender(): ?Sender
     {
         return $this->sender;
     }
 
     /**
-     * Set sender party.
+     * Set emitting accredited platform (TG-3).
      */
-    public function setSender(?Party $sender): self
+    public function setSender(?Sender $sender): self
     {
         $this->sender = $sender;
         return $this;
