@@ -338,6 +338,15 @@ class Invoice {
 
 
     /**
+     * Get rounding matrix
+     * @return array Rounding matrix (empty when none was set)
+     */
+    public function getRoundingMatrix(): array {
+        return $this->roundingMatrix ?? [];
+    }
+
+
+    /**
      * Get specification identifier
      * @return string|null Specification identifier
      */

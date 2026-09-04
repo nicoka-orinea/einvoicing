@@ -16,14 +16,17 @@ use UXML\UXML;
 
 final class CiiWriterTest extends TestCase {
     public function testCanExportInvoiceWithoutOptionalPartyIdentifiers(): void {
+        // The legal organization identifier (0002) is the only mandatory party identifier
         $seller = (new Party)
             ->setName('Seller Name Ltd.')
+            ->setCompanyId(new Identifier('518090733', '0002'))
             ->setAddress(['Fake Street 123'])
             ->setCity('Springfield')
             ->setCountry('FR');
 
         $buyer = (new Party)
             ->setName('Buyer Name Ltd.')
+            ->setCompanyId(new Identifier('850966391', '0002'))
             ->setAddress(['Main Avenue 12'])
             ->setCity('Paris')
             ->setCountry('FR');
@@ -47,9 +50,7 @@ final class CiiWriterTest extends TestCase {
         $this->assertEquals('Seller Name Ltd.', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:Name')?->asText());
         $this->assertEquals('Buyer Name Ltd.', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:Name')?->asText());
 
-        $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:GlobalID'));
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:URIUniversalCommunication'));
-        $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:SpecifiedLegalOrganization'));
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:PostalTradeAddress/ram:LineTwo'));
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:PostalTradeAddress/ram:LineThree'));
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedTradeProduct/ram:BuyerAssignedID'));
@@ -61,8 +62,8 @@ final class CiiWriterTest extends TestCase {
             ->setNumber('INV-002')
             ->setIssueDate(new DateTime('2026-01-15'))
             ->setCurrency('EUR')
-            ->setSeller((new Party)->setName('Seller')->setCountry('FR'))
-            ->setBuyer((new Party)->setName('Buyer')->setCountry('FR'))
+            ->setSeller((new Party)->setName('Seller')->setCountry('FR')->setCompanyId(new Identifier('518090733', '0002')))
+            ->setBuyer((new Party)->setName('Buyer')->setCountry('FR')->setCompanyId(new Identifier('850966391', '0002')))
             ->addPayment((new Payment())->setMeansCode('58')->addTransfer((new Transfer())->setAccountId(' ')))
             ->addLine((new InvoiceLine)
                 ->setName('Line #1')
@@ -74,6 +75,82 @@ final class CiiWriterTest extends TestCase {
         $xml = UXML::fromString((new CiiWriter())->export($invoice));
 
         $this->assertNull($xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementPaymentMeans'));
+    }
+
+    private function coherenceInvoice(): Invoice {
+        return (new Invoice)
+            ->setNumber('INV-COH')
+            ->setIssueDate(new DateTime('2026-09-01'))
+            ->setCurrency('EUR')
+            ->setSeller((new Party)->setName('Seller')->setCountry('FR')->setCompanyId(new Identifier('518090733', '0002')))
+            ->setBuyer((new Party)->setName('Buyer')->setCountry('FR')->setCompanyId(new Identifier('850966391', '0002')));
+    }
+
+    public function testSumsHeaderTotalsFromRoundedLineNets(): void {
+        // BR-CO-10: Σ BT-131 as written must equal BT-106, even when every line falls on a half cent
+        $invoice = $this->coherenceInvoice();
+        foreach ([1, 2, 3] as $id) {
+            $invoice->addLine((new InvoiceLine)->setId((string) $id)->setName("Line $id")->setPrice(10.005)->setQuantity(1)->setVatRate(20));
+        }
+
+        $xml = UXML::fromString((new CiiWriter())->export($invoice));
+        $lineTotals = array_map(
+            fn ($node) => (float) $node->asText(),
+            $xml->getAll('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeSettlement/ram:SpecifiedTradeSettlementLineMonetarySummation/ram:LineTotalAmount')
+        );
+        $summation = $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:SpecifiedTradeSettlementHeaderMonetarySummation');
+
+        $this->assertSame([10.01, 10.01, 10.01], $lineTotals);
+        $this->assertSame('30.03', $summation->get('ram:LineTotalAmount')->asText());
+        $this->assertSame('30.03', $summation->get('ram:TaxBasisTotalAmount')->asText());
+        $this->assertSame('30.03', $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:ApplicableTradeTax/ram:BasisAmount')->asText());
+        $this->assertSame('6.01', $summation->get('ram:TaxTotalAmount')->asText());
+        $this->assertSame('36.04', $summation->get('ram:GrandTotalAmount')->asText());
+    }
+
+    public function testKeepsUnitPriceDecimalsSoThatPriceTimesQuantityMatchesLineTotal(): void {
+        $invoice = $this->coherenceInvoice()
+            ->addLine((new InvoiceLine)->setId('1')->setName('Line')->setPrice(33.3333)->setQuantity(3)->setVatRate(20))
+            ->addLine((new InvoiceLine)->setId('2')->setName('Line')->setPrice(130)->setQuantity(1)->setVatRate(20));
+
+        $xml = UXML::fromString((new CiiWriter())->export($invoice));
+        $prices = array_map(
+            fn ($node) => $node->asText(),
+            $xml->getAll('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeAgreement/ram:NetPriceProductTradePrice/ram:ChargeAmount')
+        );
+        $lineTotals = array_map(
+            fn ($node) => $node->asText(),
+            $xml->getAll('rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeSettlement/ram:SpecifiedTradeSettlementLineMonetarySummation/ram:LineTotalAmount')
+        );
+
+        $this->assertSame(['33.3333', '130.00'], $prices);
+        $this->assertSame(['100.00', '130.00'], $lineTotals);
+    }
+
+    public function testWritesExemptionReasonForZeroRatedCategories(): void {
+        $invoice = $this->coherenceInvoice()
+            ->addLine((new InvoiceLine)->setId('1')->setName('Export')->setPrice(100)->setQuantity(1)
+                ->setVatCategory('G')->setVatRate(0)->setVatExemptionReasonCode('VATEX-EU-G')->setVatExemptionReason('Export outside the EU'))
+            ->addLine((new InvoiceLine)->setId('2')->setName('Not subject')->setPrice(50)->setQuantity(1)
+                ->setVatCategory('O')->setVatRate(null)->setVatExemptionReason('Not subject to VAT'));
+
+        $xml = UXML::fromString((new CiiWriter())->export($invoice));
+        $taxes = $xml->getAll('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement/ram:ApplicableTradeTax');
+
+        $this->assertCount(2, $taxes);
+        $byCategory = [];
+        foreach ($taxes as $tax) {
+            $byCategory[$tax->get('ram:CategoryCode')->asText()] = $tax;
+        }
+        $this->assertSame('Export outside the EU', $byCategory['G']->get('ram:ExemptionReason')->asText());
+        $this->assertSame('VATEX-EU-G', $byCategory['G']->get('ram:ExemptionReasonCode')->asText());
+        $this->assertSame('0', $byCategory['G']->get('ram:RateApplicablePercent')->asText());
+        $this->assertSame('0.00', $byCategory['G']->get('ram:CalculatedAmount')->asText());
+        $this->assertSame('Not subject to VAT', $byCategory['O']->get('ram:ExemptionReason')->asText());
+        $this->assertNull($byCategory['O']->get('ram:RateApplicablePercent'));
+        // XSD order inside ApplicableTradeTax
+        $children = array_map(fn ($n) => $n->element()->localName, $byCategory['G']->getAll('*'));
+        $this->assertSame(['CalculatedAmount', 'TypeCode', 'ExemptionReason', 'BasisAmount', 'CategoryCode', 'ExemptionReasonCode', 'RateApplicablePercent'], $children);
     }
 
     public function testCanGenerateDocumentNotesWithSubjectCode(): void {

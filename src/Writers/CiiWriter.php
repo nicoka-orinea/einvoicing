@@ -34,6 +34,17 @@ class CiiWriter extends AbstractWriter
     }
 
     /**
+     * BT-146 / BT-148 : EN16931 does not cap the decimals of a unit price. Writing it with two
+     * decimals breaks the PA line check (BT-146 × BT-129 vs BT-131) for prices such as 33.3333.
+     * Up to four decimals are kept, trailing zeros trimmed down to two.
+     */
+    private function formatPrice(float $amount): string
+    {
+        $formatted = number_format(round($amount, 4, PHP_ROUND_HALF_UP), 4, '.', '');
+        return preg_replace('/(\.\d{2}\d*?)0+$/', '$1', $formatted);
+    }
+
+    /**
      * Export an invoice to a CII XML document.
      */
     public function export(Invoice $invoice): string
@@ -41,6 +52,10 @@ class CiiWriter extends AbstractWriter
         $this->computedVatBreakdownAfterHeaderAC = null;
         $this->headerAllowanceTotal = 0.0;
         $this->headerChargeTotal = 0.0;
+
+        // Every amount is written with two decimals (BR-DEC-*): the totals must be computed
+        // from two-decimal line nets, or Σ BT-131 drifts from BT-106 (BR-CO-10).
+        $invoice->setRoundingMatrix($invoice->getRoundingMatrix() + ['' => 2]);
 
         $xml = $this->createRoot();
         $this->addContext($xml, $invoice);
@@ -152,10 +167,10 @@ class CiiWriter extends AbstractWriter
             $netUnitPrice = (float)$line->getPrice() / $baseQty;
 
             $agreement->add("ram:GrossPriceProductTradePrice")
-                ->add("ram:ChargeAmount", $this->formatCurrency($netUnitPrice));
+                ->add("ram:ChargeAmount", $this->formatPrice($netUnitPrice));
 
             $netPriceNode = $agreement->add("ram:NetPriceProductTradePrice");
-            $netPriceNode->add("ram:ChargeAmount", $this->formatCurrency($netUnitPrice));
+            $netPriceNode->add("ram:ChargeAmount", $this->formatPrice($netUnitPrice));
             if ($baseQty !== 1.0) {
                 $netPriceNode->add("ram:BasisQuantity", $this->formatCurrency($baseQty), [
                     "unitCode" => $line->getUnit()
@@ -265,7 +280,9 @@ class CiiWriter extends AbstractWriter
         $tax = $parent->add("ram:ApplicableTradeTax");
         $tax->add("ram:TypeCode", "VAT");
         $tax->add("ram:CategoryCode", $line->getVatCategory());
-        $tax->add("ram:RateApplicablePercent", $line->getVatRate());
+        if ($line->getVatRate() !== null) {
+            $tax->add("ram:RateApplicablePercent", $line->getVatRate());
+        }
     }
 
     private function addBillingPeriod(UXML $parent, $line): void
@@ -349,16 +366,23 @@ class CiiWriter extends AbstractWriter
          * 2) On écrit les ApplicableTradeTax à partir de ce breakdown recalculé
          *    (donc bases taxables et TVA cohérentes après remises/charges header).
          */
+        // XSD order: CalculatedAmount, TypeCode, ExemptionReason, BasisAmount, CategoryCode,
+        // ExemptionReasonCode, RateApplicablePercent. Category O carries no rate (BR-O-05).
         foreach ($this->computedVatBreakdownAfterHeaderAC as $b) {
-            if ($b['rate'] === null) {
-                continue;
-            }
             $tax = $settlement->add("ram:ApplicableTradeTax");
             $tax->add("ram:CalculatedAmount", $this->formatCurrency((float)$b['tax']));
             $tax->add("ram:TypeCode", "VAT");
+            if ($this->hasValue($b['exemptionReason'])) {
+                $tax->add("ram:ExemptionReason", $b['exemptionReason']);
+            }
             $tax->add("ram:BasisAmount", $this->formatCurrency((float)$b['taxable']));
             $tax->add("ram:CategoryCode", $b['category']);
-            $tax->add("ram:RateApplicablePercent", $b['rate']);
+            if ($this->hasValue($b['exemptionReasonCode'])) {
+                $tax->add("ram:ExemptionReasonCode", $b['exemptionReasonCode']);
+            }
+            if ($b['rate'] !== null) {
+                $tax->add("ram:RateApplicablePercent", $b['rate']);
+            }
         }
 
         /**
@@ -421,13 +445,16 @@ class CiiWriter extends AbstractWriter
     {
         $rows = [];
         foreach ($vatBreakdownBefore as $b) {
-            if ($b->rate === null) {
+            // A missing rate is only legitimate for "not subject to VAT" (BR-O-05 forbids one)
+            if ($b->rate === null && $b->category !== 'O') {
                 continue;
             }
             $key = $b->category . '|' . $b->rate;
             $rows[$key] = [
                 'category' => $b->category,
                 'rate' => $b->rate,
+                'exemptionReason' => $b->exemptionReason,
+                'exemptionReasonCode' => $b->exemptionReasonCode,
                 'taxable' => (float)$b->taxableAmount,
                 'tax' => 0.0,
             ];
