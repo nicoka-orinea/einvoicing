@@ -99,7 +99,9 @@ class InvoiceTotals {
 
         // Process all invoice lines
         foreach ($inv->getLines() as $line) {
-            $lineNetAmount = $line->getNetAmount() ?? 0.0;
+            // Sum the line nets as they are written (BT-131), otherwise Σ BT-131 ≠ BT-106 (BR-CO-10)
+            // as soon as two lines fall on a half cent.
+            $lineNetAmount = $inv->round($line->getNetAmount() ?? 0.0, 'line/netAmount');
             $totals->netAmount += $lineNetAmount;
             self::updateVatMap($vatMap, $line, $lineNetAmount);
         }
