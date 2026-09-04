@@ -153,6 +153,25 @@ final class CiiWriterTest extends TestCase {
         $this->assertSame(['CalculatedAmount', 'TypeCode', 'ExemptionReason', 'BasisAmount', 'CategoryCode', 'ExemptionReasonCode', 'RateApplicablePercent'], $children);
     }
 
+    public function testWritesVatTotalInAccountingCurrency(): void {
+        // BT-6 / BT-111 (BR-53): an invoice in CHF whose VAT is accounted in EUR
+        $invoice = $this->coherenceInvoice()
+            ->setCurrency('CHF')
+            ->setVatCurrency('EUR')
+            ->setCustomVatAmount(20.83)
+            ->addLine((new InvoiceLine)->setId('1')->setName('Line')->setPrice(100)->setQuantity(1)->setVatRate(20));
+
+        $xml = UXML::fromString((new CiiWriter())->export($invoice));
+        $settlement = $xml->get('rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeSettlement');
+        $taxTotals = $settlement->getAll('ram:SpecifiedTradeSettlementHeaderMonetarySummation/ram:TaxTotalAmount');
+
+        $this->assertSame('EUR', $settlement->get('ram:TaxCurrencyCode')->asText());
+        $this->assertSame('CHF', $settlement->get('ram:InvoiceCurrencyCode')->asText());
+        $this->assertCount(2, $taxTotals);
+        $this->assertSame(['CHF', '20.00'], [$taxTotals[0]->element()->getAttribute('currencyID'), $taxTotals[0]->asText()]);
+        $this->assertSame(['EUR', '20.83'], [$taxTotals[1]->element()->getAttribute('currencyID'), $taxTotals[1]->asText()]);
+    }
+
     public function testCanGenerateDocumentNotesWithSubjectCode(): void {
         $invoice = new Invoice();
         $invoice->setNumber('INV-001')

@@ -814,6 +814,14 @@ class CiiWriter extends AbstractWriter
             "currencyID" => $currency
         ]);
 
+        // BT-111: VAT total in the accounting currency, mandatory once BT-6 is given (BR-53)
+        $vatCurrency = $invoice->getVatCurrency();
+        if ($vatCurrency !== null && $vatCurrency !== $currency && $totals->customVatAmount !== null) {
+            $sum->add("ram:TaxTotalAmount", $this->formatCurrency((float) $totals->customVatAmount), [
+                "currencyID" => $vatCurrency
+            ]);
+        }
+
         // NOTE: XSD order — RoundingAmount (BT-114) before GrandTotalAmount (BT-112)
         if ((float) $totals->roundingAmount !== 0.0) {
             $sum->add("ram:RoundingAmount", $this->formatCurrency((float) $totals->roundingAmount));
